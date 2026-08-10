@@ -1,19 +1,11 @@
-import { env } from "cloudflare:workers";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-
-type HaulwayEnv = {
-  SUPABASE_URL?: string;
-  SUPABASE_SECRET_KEY?: string;
-  UPLOADS?: R2Bucket;
-};
 
 let client: SupabaseClient | null = null;
 
 export function getSupabase() {
   if (!client) {
-    const runtime = env as unknown as HaulwayEnv;
-    const url = runtime.SUPABASE_URL ?? process.env.SUPABASE_URL;
-    const secretKey = runtime.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SECRET_KEY;
+    const url = process.env.SUPABASE_URL;
+    const secretKey = process.env.SUPABASE_SECRET_KEY;
     if (!url || !secretKey) {
       throw new Error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_SECRET_KEY.");
     }
@@ -25,10 +17,21 @@ export function getSupabase() {
   return client;
 }
 
-export function getUploads() {
-  const bucket = (env as unknown as HaulwayEnv).UPLOADS;
-  if (!bucket) throw new Error("Upload storage binding is unavailable.");
-  return bucket;
+export function getStorageBucketName() {
+  return process.env.SUPABASE_STORAGE_BUCKET?.trim() || "job-media";
+}
+
+export function getStorage() {
+  return getSupabase().storage.from(getStorageBucketName());
+}
+
+export function getSupabasePublicConfig() {
+  const url = process.env.SUPABASE_URL;
+  const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !publishableKey) {
+    throw new Error("Supabase uploads are not configured. Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.");
+  }
+  return { url, publishableKey, bucket: getStorageBucketName() };
 }
 
 export function throwDatabaseError(error: { message: string } | null) {

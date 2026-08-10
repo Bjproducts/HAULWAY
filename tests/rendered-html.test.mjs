@@ -38,15 +38,23 @@ test("operator workflow supports quotes, chat, payment tracking, and two confirm
   assert.match(migration, /enable row level security/);
 });
 
-test("Supabase access stays server-side and D1 is disabled", async () => {
-  const [database, hosting, exampleEnv] = await Promise.all([
+test("the app uses native Next.js and private Supabase Storage for Netlify", async () => {
+  const [database, jobs, media, exampleEnv, packageSource] = await Promise.all([
     readFile(new URL("db/index.ts", root), "utf8"),
-    readFile(new URL(".openai/hosting.json", root), "utf8"),
+    readFile(new URL("app/api/jobs/route.ts", root), "utf8"),
+    readFile(new URL("app/api/media/[id]/route.ts", root), "utf8"),
     readFile(new URL(".env.example", root), "utf8"),
+    readFile(new URL("package.json", root), "utf8"),
   ]);
+  const packageJson = JSON.parse(packageSource);
   assert.match(database, /SUPABASE_SECRET_KEY/);
   assert.match(database, /persistSession: false/);
-  assert.equal(JSON.parse(hosting).d1, null);
+  assert.match(jobs, /createSignedUploadUrl/);
+  assert.match(media, /createSignedUrl/);
+  assert.equal(packageJson.scripts.build, "next build");
+  assert.equal(packageJson.dependencies.next, "16.3.0");
+  assert.doesNotMatch(packageSource, /vinext|wrangler|cloudflare/i);
   assert.match(exampleEnv, /SUPABASE_URL/);
+  assert.match(exampleEnv, /SUPABASE_STORAGE_BUCKET/);
   assert.doesNotMatch(exampleEnv, /sb_secret_|eyJ/);
 });

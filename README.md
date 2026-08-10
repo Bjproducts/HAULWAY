@@ -5,15 +5,15 @@ HAULWAY is a direct Edmonton junk-removal and small-moving service with two inte
 - `/` — customer registration, required photo/video requests, quote approval, chat, payment choice, and completion confirmation.
 - `/driver` — private operator portal for requests, quotes, chat, cash/Interac tracking, and completion confirmation.
 
-Customers, operator access, sessions, jobs, quotes, messages, and file metadata are stored in Supabase Postgres. Uploaded photos and videos remain private R2 objects and are served only to the customer who owns the request or the signed-in operator.
+Customers, operator access, sessions, jobs, quotes, messages, and file metadata are stored in Supabase Postgres. Uploaded photos and videos remain in a private Supabase Storage bucket and are served only through short-lived URLs after the app verifies the customer or operator session.
 
 ## Supabase setup
 
-1. Open the Supabase SQL editor and run `supabase/migrations/20260810000000_create_haulway_schema.sql`.
+1. Open the Supabase SQL editor and run the SQL files in `supabase/migrations` in filename order. The second migration creates the private `job-media` bucket used on Netlify.
 2. Copy `.env.example` to `.env`.
-3. Add the project URL and server-only secret key. Never expose the secret key in client-side code.
+3. Add the four values shown in `.env.example`. Never expose the secret key in client-side code.
 
-Only `SUPABASE_URL` and `SUPABASE_SECRET_KEY` are required by the app. The publishable and JWKS values are not needed because HAULWAY keeps all database access behind authenticated server routes.
+Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, and `SUPABASE_STORAGE_BUCKET` in both local development and Netlify. The secret key remains server-only; the publishable key is used only with one-time signed upload tokens. Database access stays behind authenticated server routes.
 
 ## Local development
 
@@ -31,6 +31,12 @@ npm run build
 npm run lint
 npm test
 ```
+
+## Netlify deployment
+
+Push the repository to your Git provider and import it in Netlify. Netlify detects the standard Next.js app automatically; use `npm run build` if it asks for a build command. Add the four Supabase variables from `.env.example` under **Site configuration → Environment variables**, then deploy.
+
+Uploads go directly from the customer browser to the private Supabase bucket. This keeps photos and videos outside Netlify Function request limits while preserving access checks in the app.
 
 ## Current payment flow
 

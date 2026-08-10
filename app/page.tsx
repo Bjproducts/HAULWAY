@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element, jsx-a11y/media-has-caption */
 
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
 import { money, shortDate } from "@/lib/contracts";
 
@@ -171,14 +172,48 @@ function RequestFlow({ service, customer, onCancel, onCreated }: { service: Serv
 
   async function submit() {
     setBusy(true); setError("");
-    const form = new FormData();
-    form.set("serviceType", service); form.set("item", item); form.set("pickup", pickup); form.set("dropoff", dropoff); form.set("notes", notes); form.set("scheduledDate", date); form.set("scheduledTime", time);
-    uploads.forEach(({ file }) => form.append("media", file));
+    let pendingJobId: string | null = null;
     try {
-      const data = await fetch("/api/jobs", { method: "POST", body: form }).then(readJson) as { job: JobDetails };
+      const data = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          serviceType: service,
+          item,
+          pickup,
+          dropoff,
+          notes,
+          scheduledDate: date,
+          scheduledTime: time,
+          media: uploads.map(({ file }) => ({ filename: file.name, contentType: file.type, sizeBytes: file.size })),
+        }),
+      }).then(readJson) as {
+        jobId: string;
+        storage: { url: string; publishableKey: string; bucket: string };
+        uploads: Array<{ id: string; path: string; token: string }>;
+      };
+      pendingJobId = data.jobId;
+      const storage = createClient(data.storage.url, data.storage.publishableKey, {
+        auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+      }).storage.from(data.storage.bucket);
+      const uploadResults = await Promise.allSettled(uploads.map(async ({ file }, index) => {
+        const target = data.uploads[index];
+        if (!target) throw new Error("The upload plan is incomplete.");
+        const { error: uploadError } = await storage.uploadToSignedUrl(target.path, target.token, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+        if (uploadError) throw uploadError;
+      }));
+      const failedUpload = uploadResults.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failedUpload) throw failedUpload.reason;
+      const completed = await fetch(`/api/jobs/${data.jobId}/uploads`, { method: "POST" }).then(readJson) as { job: JobDetails };
       uploads.forEach((upload) => URL.revokeObjectURL(upload.url));
-      onCreated(data.job);
-    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+      onCreated(completed.job);
+    } catch (caught) {
+      if (pendingJobId) void fetch(`/api/jobs/${pendingJobId}/uploads`, { method: "DELETE" });
+      setError(errorMessage(caught));
+    } finally { setBusy(false); }
   }
 
   return <main className="request-page">

@@ -19,6 +19,7 @@ export type JobRow = {
   payment_status: "unpaid" | "paid";
   customer_confirmed: boolean;
   operator_confirmed: boolean;
+  upload_complete: boolean;
   created_at: string;
   updated_at: string;
 };
