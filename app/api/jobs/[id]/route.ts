@@ -1,4 +1,5 @@
 import { getApiSession } from "@/lib/auth";
+import { INTERAC_EMAIL } from "@/lib/contracts";
 import { addSystemMessage, canAccessJob, getJobDetails, getJobRow, updateJob } from "@/lib/jobs";
 import { getErrorMessage, jsonError } from "@/lib/responses";
 
@@ -59,10 +60,13 @@ export async function PATCH(request: Request, context: Context) {
       await addSystemMessage(id, "Quote declined. You can discuss a different price here.");
     } else if (body.action === "payment_method") {
       if (session.role !== "customer") return jsonError("Customer access required.", 403);
-      if (job.status !== "accepted" && job.status !== "in_progress") return jsonError("Accept the quote before choosing payment.");
+      /* Payment is settled after the job, not when the quote is accepted. */
+      if (job.status !== "completed") return jsonError("Payment is arranged once the job is confirmed complete.");
       if (body.method !== "interac" && body.method !== "cash") return jsonError("Choose Interac or cash.");
       await updateJob(id, { payment_method: body.method });
-      await addSystemMessage(id, body.method === "interac" ? "Payment method: Interac e-Transfer." : "Payment method: cash.");
+      await addSystemMessage(id, body.method === "interac"
+        ? `Payment method: Interac e-Transfer. Send it to ${INTERAC_EMAIL}.`
+        : "Payment method: cash, paid directly to the driver.");
     } else if (body.action === "mark_paid") {
       if (session.role !== "operator") return jsonError("Operator access required.", 403);
       await updateJob(id, { payment_status: "paid" });
@@ -73,7 +77,7 @@ export async function PATCH(request: Request, context: Context) {
       const updated = await getJobRow(id);
       if (updated?.customer_confirmed && updated.operator_confirmed) {
         await updateJob(id, { status: "completed" });
-        await addSystemMessage(id, "Job completed and confirmed by both sides.");
+        await addSystemMessage(id, "Job completed and confirmed by both sides. Choose how you'd like to pay.");
       } else {
         await addSystemMessage(id, `${session.role === "operator" ? "Haulway" : "Customer"} confirmed the job is complete.`);
       }

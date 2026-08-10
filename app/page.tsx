@@ -5,7 +5,7 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
-import { money, shortDate } from "@/lib/contracts";
+import { INTERAC_EMAIL, money, shortDate } from "@/lib/contracts";
 
 type Screen = "boot" | "auth" | "app" | "request" | "sent";
 type Tab = "home" | "requests";
@@ -204,6 +204,7 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -253,12 +254,13 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
     <div className="sub-scroll"><div className="skeleton-card" /></div>
   </section>;
 
-  const cancelBlock = confirmCancel
-    ? <div className="cancel-confirm">
-        <p>Cancel this request? It disappears from your list.</p>
-        <div><button onClick={() => setConfirmCancel(false)}>Keep it</button><button className="danger" disabled={busy} onClick={() => void cancel()}>Yes, cancel</button></div>
-      </div>
-    : <button className="cancel-button" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel request</button>;
+  const cancelSheet = confirmCancel && <div className="cancel-sheet" role="dialog" aria-modal="true">
+    <div className="cancel-sheet-card">
+      <h3>Cancel this request?</h3>
+      <p>It disappears from your requests and the driver is told.</p>
+      <div><button disabled={busy} onClick={() => setConfirmCancel(false)}>Keep it</button><button className="danger" disabled={busy} onClick={() => void cancel()}>Yes, cancel</button></div>
+    </div>
+  </div>;
 
   /* Nothing to talk about until a driver takes it — so no chat, no photos, no details. */
   if (job.status === "requested") return <section className="waiting-page">
@@ -270,14 +272,23 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
       <span className="waiting-meta">{job.item} · {shortDate(job.scheduledDate)} · {displayTime(job.scheduledTime)}</span>
     </div>
     {error && <p className="chat-error">{error}</p>}
-    <div className="waiting-foot">{cancelBlock}</div>
+    <div className="waiting-foot"><button className="cancel-button" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel request</button></div>
+    {cancelSheet}
   </section>;
 
   return <section className="chat-page">
     <div className="chat-head">
       <button className="chat-back" onClick={onBack} aria-label="Back to requests">←</button>
       <div><strong>{job.item}</strong><small>Haulway · {statusLabel(job.status)}</small></div>
-      <span className="chat-live" aria-hidden="true" />
+      {CANCELLABLE.has(job.status)
+        ? <span className="head-menu">
+            <button className="menu-dots" onClick={() => setMenuOpen((value) => !value)} aria-label="Request options" aria-expanded={menuOpen}>⋮</button>
+            {menuOpen && <>
+              <button className="menu-scrim" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
+              <span className="menu-pop"><button onClick={() => { setMenuOpen(false); setConfirmCancel(true); }}>Cancel request</button></span>
+            </>}
+          </span>
+        : <span className="chat-live" aria-hidden="true" />}
     </div>
 
     <div className="chat-scroll">
@@ -298,24 +309,36 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         </div>
       </div>}
 
-      {(job.status === "accepted" || job.status === "in_progress") && !job.paymentMethod && <div className="chat-action">
-        <small>HOW WILL YOU PAY?</small>
+      {(job.status === "accepted" || job.status === "in_progress") && <>
+        <p className="payment-line">Payment is due once the job is done — nothing to pay now.</p>
+        <button className="complete-button" disabled={busy || job.customerConfirmed} onClick={() => void action("confirm_complete")}>{job.customerConfirmed ? "Waiting on Haulway to confirm ✓" : "Confirm job is complete"}</button>
+      </>}
+
+      {/* Both sides confirmed — now settle up. */}
+      {job.status === "completed" && !job.paymentMethod && <div className="chat-action">
+        <small>JOB DONE — HOW WILL YOU PAY?</small>
         <div className="chat-action-row">
           <button className="pay-option" disabled={busy} onClick={() => void action("payment_method", { method: "interac" })}>Interac e-Transfer</button>
           <button className="pay-option" disabled={busy} onClick={() => void action("payment_method", { method: "cash" })}>Cash</button>
         </div>
       </div>}
 
-      {job.paymentMethod && job.status !== "quoted" && <p className="payment-line">
-        {job.paymentMethod === "interac" ? "Paying by Interac e-Transfer — Haulway shares the email here." : "Paying with Cash — hand it to the driver on the day."}
+      {job.status === "completed" && job.paymentMethod === "interac" && <div className="chat-action interac">
+        <small>SEND YOUR INTERAC E-TRANSFER TO</small>
+        <a className="interac-email" href={`mailto:${INTERAC_EMAIL}`}>{INTERAC_EMAIL}</a>
+        <span className="interac-amount">{job.quoteCents ? money(job.quoteCents) : ""}</span>
+        <em className={job.paymentStatus}>{job.paymentStatus === "paid" ? "Received ✓" : "Waiting on payment"}</em>
+      </div>}
+
+      {job.status === "completed" && job.paymentMethod === "cash" && <p className="payment-line">
+        Paying {job.quoteCents ? money(job.quoteCents) : ""} in cash, directly to the driver.
         <em className={job.paymentStatus}>{job.paymentStatus === "paid" ? "Received ✓" : "Not marked paid"}</em>
       </p>}
 
-      {job.status === "accepted" && job.paymentMethod && <button className="complete-button" disabled={busy || job.customerConfirmed} onClick={() => void action("confirm_complete")}>{job.customerConfirmed ? "You confirmed completion ✓" : "Confirm job is complete"}</button>}
       {job.status === "completed" && <div className="complete-banner">✓ Job complete</div>}
-      {CANCELLABLE.has(job.status) && <div className="chat-cancel">{cancelBlock}</div>}
       {error && <p className="chat-error">{error}</p>}
     </div>
+    {cancelSheet}
 
     <form className="chat-composer" onSubmit={send}>
       <input aria-label="Message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message Haulway…" />

@@ -1,3 +1,6 @@
+/* Where customers send an Interac e-Transfer once a job is confirmed complete. */
+export const INTERAC_EMAIL = "jbuoapu@gmail.com";
+
 export type Customer = { id: string; name: string; phone: string };
 
 export type Message = {
