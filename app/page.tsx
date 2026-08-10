@@ -2,115 +2,360 @@
 
 /* eslint-disable @next/next/no-img-element, jsx-a11y/media-has-caption */
 
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
 import { money, shortDate } from "@/lib/contracts";
 
-type Screen = "boot" | "auth" | "home" | "request" | "job";
+type Screen = "boot" | "auth" | "app" | "request";
+type Tab = "home" | "requests" | "chat";
 type Service = "junk" | "move";
 type Upload = { id: string; file: File; url: string; kind: "image" | "video" };
+
+/* Chat opens once an order is actually set — a quote the customer accepted.
+   Nothing to talk about while a request is still pending a quote. */
+const CHAT_STATUSES = new Set(["accepted", "in_progress", "completed"]);
+const chatOpen = (job: Job) => CHAT_STATUSES.has(job.status);
 
 function Logo({ light = false }: { light?: boolean }) {
   return <span className={`hw-logo ${light ? "light" : ""}`}><span className="hw-mark">H</span><span>HAULWAY</span></span>;
 }
 
-export default function CustomerHome() {
+export default function CustomerApp() {
   const [screen, setScreen] = useState<Screen>("boot");
+  const [tab, setTab] = useState<Tab>("home");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [selectedJob, setSelectedJob] = useState<JobDetails | null>(null);
+  const [openJobId, setOpenJobId] = useState<string | null>(null);
+  const [chatJobId, setChatJobId] = useState<string | null>(null);
   const [service, setService] = useState<Service>("junk");
   const [notice, setNotice] = useState("");
 
-  useEffect(() => {
-    let active = true;
-    Promise.all([fetch("/api/auth/me", { cache: "no-store" }).then(readJson), wait(900)])
-      .then(([data]) => {
-        if (!active) return;
-        const nextCustomer = (data as { customer: Customer | null }).customer;
-        setCustomer(nextCustomer);
-        setScreen(nextCustomer ? "home" : "auth");
-        if (nextCustomer) void refreshJobs();
-      })
-      .catch(() => active && setScreen("auth"));
-    return () => { active = false; };
-  }, []);
-
-  async function refreshJobs() {
+  const refreshJobs = useCallback(async () => {
     try {
       const data = await fetch("/api/jobs", { cache: "no-store" }).then(readJson) as { jobs: Job[] };
       setJobs(data.jobs);
+      return data.jobs;
     } catch {
-      setJobs([]);
+      return [] as Job[];
     }
-  }
+  }, []);
 
-  async function openJob(id: string) {
-    try {
-      const data = await fetch(`/api/jobs/${id}`, { cache: "no-store" }).then(readJson) as { job: JobDetails };
-      setSelectedJob(data.job);
-      setScreen("job");
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  }
+  useEffect(() => {
+    let active = true;
+    Promise.all([fetch("/api/auth/me", { cache: "no-store" }).then(readJson), wait(1500)])
+      .then(([data]) => {
+        if (!active) return;
+        const next = (data as { customer: Customer | null }).customer;
+        setCustomer(next);
+        setScreen(next ? "app" : "auth");
+        if (next) void refreshJobs();
+      })
+      .catch(() => active && setScreen("auth"));
+    return () => { active = false; };
+  }, [refreshJobs]);
+
+  useEffect(() => {
+    if (screen !== "app") return;
+    const timer = window.setInterval(() => void refreshJobs(), 5000);
+    return () => window.clearInterval(timer);
+  }, [screen, refreshJobs]);
+
+  const chatJobs = useMemo(() => jobs.filter(chatOpen), [jobs]);
 
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });
-    setCustomer(null);
-    setJobs([]);
-    setScreen("auth");
+    setCustomer(null); setJobs([]); setOpenJobId(null); setChatJobId(null);
+    setTab("home"); setScreen("auth");
+  }
+
+  function goTab(next: Tab) {
+    setTab(next); setNotice("");
+    if (next !== "requests") setOpenJobId(null);
+    if (next !== "chat") setChatJobId(null);
+    if (next === "chat" && chatJobs.length === 1) setChatJobId(chatJobs[0].id);
   }
 
   if (screen === "boot") return <Splash />;
-  if (screen === "auth") return <Registration onRegistered={(next) => { setCustomer(next); setScreen("home"); void refreshJobs(); }} />;
+  if (screen === "auth") return <Registration onRegistered={(next) => { setCustomer(next); setScreen("app"); void refreshJobs(); }} />;
   if (screen === "request" && customer) {
-    return <RequestFlow service={service} customer={customer} onCancel={() => setScreen("home")} onCreated={(job) => {
-      setSelectedJob(job);
-      setNotice("Request sent. Your quote will appear here.");
-      setScreen("job");
-      void refreshJobs();
+    return <RequestFlow service={service} onCancel={() => setScreen("app")} onCreated={async (job) => {
+      setScreen("app"); setTab("requests"); setOpenJobId(job.id);
+      setNotice("Request sent. Your quote will land here.");
+      await refreshJobs();
     }} />;
   }
-  if (screen === "job" && selectedJob && customer) {
-    return <CustomerJobView initialJob={selectedJob} customer={customer} notice={notice} onNotice={setNotice} onSignOut={signOut} onBack={() => { setScreen("home"); setNotice(""); void refreshJobs(); }} />;
-  }
+  if (!customer) return <Splash />;
 
   return (
-    <main className="customer-app">
-      <CustomerHeader customer={customer!} onHome={() => setScreen("home")} onSignOut={signOut} />
-      <section className="customer-choice">
-        <div className="choice-heading">
-          <span className="micro-label">HI {customer?.name.split(" ")[0].toUpperCase()}</span>
-          <h1>What needs to move?</h1>
-        </div>
-        <div className="service-grid">
-          <button className="customer-service-card junk" onClick={() => { setService("junk"); setScreen("request"); }}>
-            <span className="service-index">01</span><div className="service-art junk-art" aria-hidden="true"><i /><i /><i /></div>
-            <div><h2>Junk removal</h2><p>Clear it out.</p></div><span className="service-arrow">→</span>
-          </button>
-          <button className="customer-service-card move" onClick={() => { setService("move"); setScreen("request"); }}>
-            <span className="service-index">02</span><div className="service-art move-art" aria-hidden="true"><i /><i /></div>
-            <div><h2>Small-scale moving</h2><p>Move a few things.</p></div><span className="service-arrow">→</span>
-          </button>
-        </div>
-        <div className="choice-footer"><span>Edmonton</span><span>Photos required</span><span>Video allowed</span><span>Quote first</span></div>
-      </section>
-      <section className="customer-request-list">
-        <div className="section-title"><div><span className="micro-label">YOUR REQUESTS</span><h2>Track every haul.</h2></div><button onClick={refreshJobs}>Refresh</button></div>
-        {jobs.length ? (
-          <div className="request-cards">{jobs.map((job) => <button key={job.id} className="request-card" onClick={() => void openJob(job.id)}>
-            <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
-            <strong>{job.item}</strong><small>{shortDate(job.scheduledDate)} · {job.scheduledTime}</small>
-            <b>{job.quoteCents ? money(job.quoteCents) : "Quote pending"}</b><i>→</i>
-          </button>)}</div>
-        ) : <div className="empty-requests"><span>01</span><div><strong>No requests yet.</strong><small>Choose a service above when you are ready.</small></div></div>}
-      </section>
-      <footer className="customer-footer"><span>Serving all of Edmonton</span><a href="/driver">Operator portal →</a></footer>
-    </main>
+    <div className="app-shell">
+      <header className="app-bar">
+        <button className="app-bar-logo" onClick={() => goTab("home")} aria-label="Haulway home"><Logo /></button>
+        <button className="app-avatar" onClick={() => void signOut()} title="Sign out">{initials(customer.name)}</button>
+      </header>
+
+      <main className="app-body">
+        {tab === "home" && <HomeTab customer={customer} activeCount={jobs.filter((job) => job.status !== "completed").length} onPick={(picked) => { setService(picked); setScreen("request"); }} />}
+        {tab === "requests" && (openJobId
+          ? <JobDetail jobId={openJobId} notice={notice} onNotice={setNotice} onBack={() => { setOpenJobId(null); setNotice(""); void refreshJobs(); }} onOpenChat={(id) => { setChatJobId(id); setTab("chat"); setOpenJobId(null); }} onChanged={refreshJobs} />
+          : <RequestsTab jobs={jobs} notice={notice} onOpen={setOpenJobId} onNew={() => goTab("home")} />)}
+        {tab === "chat" && <ChatTab jobs={chatJobs} jobId={chatJobId} onPick={setChatJobId} onBack={() => setChatJobId(null)} onNew={() => goTab("home")} />}
+      </main>
+
+      <nav className="tab-bar">
+        <TabButton icon="⌂" label="Home" active={tab === "home"} onClick={() => goTab("home")} />
+        <TabButton icon="▤" label="Requests" active={tab === "requests"} badge={jobs.filter((job) => job.status !== "completed").length} onClick={() => goTab("requests")} />
+        <TabButton icon="✉" label="Chat" active={tab === "chat"} locked={!chatJobs.length} badge={chatJobs.length} onClick={() => goTab("chat")} />
+      </nav>
+    </div>
   );
 }
+
+function TabButton({ icon, label, active, badge = 0, locked = false, onClick }: { icon: string; label: string; active: boolean; badge?: number; locked?: boolean; onClick: () => void }) {
+  return <button className={`tab-button ${active ? "active" : ""} ${locked ? "locked" : ""}`} onClick={onClick} aria-current={active ? "page" : undefined}>
+    <span className="tab-icon">{locked ? "⊘" : icon}{!locked && badge > 0 && <i>{badge}</i>}</span>{label}
+  </button>;
+}
+
+/* ---------- Home ---------- */
+
+function HomeTab({ customer, activeCount, onPick }: { customer: Customer; activeCount: number; onPick: (service: Service) => void }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setOpen(true), 1100);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return (
+    <section className="home-tab">
+      <div className="home-greeting">
+        <span className="micro-label enter" style={{ animationDelay: ".05s" }}>HI {customer.name.split(" ")[0].toUpperCase()}</span>
+        <h1>
+          <span className="enter" style={{ animationDelay: ".18s" }}>Ohh, what can</span>
+          <span className="enter" style={{ animationDelay: ".30s" }}>we help you</span>
+          <span className="enter accent" style={{ animationDelay: ".42s" }}>with today?</span>
+        </h1>
+      </div>
+
+      <div className={`service-picker enter ${open ? "open" : ""}`} style={{ animationDelay: ".58s" }}>
+        <button className="picker-trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls="service-options">
+          <span className="picker-dot" aria-hidden="true" />
+          <span>Choose a service</span>
+          <span className="picker-caret" aria-hidden="true">▾</span>
+        </button>
+        <div className="picker-drop" id="service-options" role="group" aria-label="Services">
+          <div className="picker-drop-inner">
+            <button className="service-option junk" onClick={() => onPick("junk")} tabIndex={open ? 0 : -1}>
+              <span className="option-index">01</span>
+              <span className="option-copy"><strong>Junk removal</strong><small>Clear it out — one item or a full load.</small></span>
+              <span className="option-go" aria-hidden="true">→</span>
+            </button>
+            <button className="service-option move" onClick={() => onPick("move")} tabIndex={open ? 0 : -1}>
+              <span className="option-index">02</span>
+              <span className="option-copy"><strong>Small-scale moving</strong><small>A few things, across town.</small></span>
+              <span className="option-go" aria-hidden="true">→</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="home-foot enter" style={{ animationDelay: ".72s" }}>
+        <span>Edmonton</span><span>Photos required</span><span>Quote first</span>
+        {activeCount > 0 && <em>{activeCount} active haul{activeCount > 1 ? "s" : ""}</em>}
+      </div>
+    </section>
+  );
+}
+
+/* ---------- Requests ---------- */
+
+function RequestsTab({ jobs, notice, onOpen, onNew }: { jobs: Job[]; notice: string; onOpen: (id: string) => void; onNew: () => void }) {
+  const current = jobs.filter((job) => job.status !== "completed");
+  const past = jobs.filter((job) => job.status === "completed");
+  return <section className="sub-page">
+    <div className="sub-head"><div><span className="micro-label">YOUR HAULS</span><h2>Requests</h2></div><button className="ghost-button" onClick={onNew}>+ New</button></div>
+    {notice && <p className="inline-notice">{notice}</p>}
+    <div className="sub-scroll">
+      {!jobs.length && <div className="empty-state"><span>▤</span><strong>No requests yet.</strong><small>Start one from Home and it will show up here.</small><button className="hw-primary" onClick={onNew}>Book a haul →</button></div>}
+      {current.length > 0 && <>
+        <p className="list-label">Current</p>
+        {current.map((job) => <JobRow key={job.id} job={job} onOpen={onOpen} />)}
+      </>}
+      {past.length > 0 && <>
+        <p className="list-label">Completed</p>
+        {past.map((job) => <JobRow key={job.id} job={job} onOpen={onOpen} />)}
+      </>}
+    </div>
+  </section>;
+}
+
+function JobRow({ job, onOpen }: { job: Job; onOpen: (id: string) => void }) {
+  return <button className="job-row" onClick={() => onOpen(job.id)}>
+    <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+    <strong>{job.item}</strong>
+    <small>{shortDate(job.scheduledDate)} · {job.scheduledTime}</small>
+    <b>{job.quoteCents ? money(job.quoteCents) : "Quote pending"}</b>
+    <i aria-hidden="true">→</i>
+  </button>;
+}
+
+function JobDetail({ jobId, notice, onNotice, onBack, onOpenChat, onChanged }: { jobId: string; notice: string; onNotice: (value: string) => void; onBack: () => void; onOpenChat: (id: string) => void; onChanged: () => Promise<Job[]> }) {
+  const [job, setJob] = useState<JobDetails | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      try {
+        const data = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" }).then(readJson) as { job: JobDetails };
+        if (active) setJob(data.job);
+      } catch (caught) { if (active && !job) onNotice(errorMessage(caught)); }
+    }
+    void poll();
+    const timer = window.setInterval(() => void poll(), 5000);
+    return () => { active = false; window.clearInterval(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId]);
+
+  async function action(actionName: string, extra: Record<string, unknown> = {}) {
+    setBusy(true); onNotice("");
+    try {
+      const data = await fetch(`/api/jobs/${jobId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: actionName, ...extra }) }).then(readJson) as { job: JobDetails };
+      setJob(data.job); await onChanged();
+    } catch (caught) { onNotice(errorMessage(caught)); } finally { setBusy(false); }
+  }
+
+  if (!job) return <section className="sub-page"><div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button></div><div className="sub-scroll"><div className="skeleton-card" /></div></section>;
+
+  return <section className="sub-page">
+    <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button><span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span></div>
+    <div className="sub-scroll">
+      {notice && <p className="inline-notice">{notice}</p>}
+      <h2 className="detail-title">{job.item}</h2>
+      <p className="detail-sub">{shortDate(job.scheduledDate)} · {job.scheduledTime} · #{job.id.slice(0, 6).toUpperCase()}</p>
+
+      {job.media.length > 0 && <div className="detail-media">{job.media.map((media) => media.contentType.startsWith("video/")
+        ? <video key={media.id} src={media.url} controls playsInline />
+        : <img key={media.id} src={media.url} alt={media.filename} />)}</div>}
+
+      <dl className="detail-facts">
+        <div><dt>Pickup</dt><dd>{job.pickup}</dd></div>
+        {job.dropoff && <div><dt>Drop-off</dt><dd>{job.dropoff}</dd></div>}
+        <div><dt>Notes</dt><dd>{job.notes || "No extra notes"}</dd></div>
+      </dl>
+
+      {job.quoteCents != null && <div className="quote-card">
+        <div><small>YOUR QUOTE</small><strong>{money(job.quoteCents)}</strong></div>
+        {job.status === "quoted" && <div className="quote-actions">
+          <button className="decline-button" disabled={busy} onClick={() => void action("decline_quote")}>Decline</button>
+          <button className="hw-primary" disabled={busy} onClick={() => void action("accept_quote")}>Accept</button>
+        </div>}
+      </div>}
+
+      {job.status === "requested" && <p className="waiting-note">Haulway is reviewing your photos. Your quote arrives here — chat opens once you accept it.</p>}
+
+      {chatOpen(job) && <button className="chat-cta" onClick={() => onOpenChat(job.id)}>Open chat<span>{job.messages.length}</span></button>}
+
+      {(job.status === "accepted" || job.status === "in_progress" || job.status === "completed") && <div className="payment-card">
+        <span className="micro-label">PAYMENT</span>
+        <h3>{job.paymentMethod ? `Pay by ${job.paymentMethod === "interac" ? "Interac e-Transfer" : "cash"}` : "How will you pay?"}</h3>
+        <p>{job.paymentMethod === "interac" ? "The Interac email is in your chat." : job.paymentMethod === "cash" ? "Pay the operator directly in cash." : "No online payment is collected."}</p>
+        {!job.paymentMethod && <div className="payment-options">
+          <button disabled={busy} onClick={() => void action("payment_method", { method: "interac" })}>Interac</button>
+          <button disabled={busy} onClick={() => void action("payment_method", { method: "cash" })}>Cash</button>
+        </div>}
+        <span className={`payment-state ${job.paymentStatus}`}>{job.paymentStatus === "paid" ? "Payment received" : "Not marked paid"}</span>
+      </div>}
+
+      {job.status === "accepted" && <button className="complete-button" disabled={busy || job.customerConfirmed} onClick={() => void action("confirm_complete")}>{job.customerConfirmed ? "You confirmed completion ✓" : "Confirm job is complete"}</button>}
+      {job.status === "completed" && <div className="complete-banner">✓ Job complete</div>}
+    </div>
+  </section>;
+}
+
+/* ---------- Chat ---------- */
+
+function ChatTab({ jobs, jobId, onPick, onBack, onNew }: { jobs: Job[]; jobId: string | null; onPick: (id: string) => void; onBack: () => void; onNew: () => void }) {
+  if (!jobs.length) return <section className="sub-page">
+    <div className="sub-head"><div><span className="micro-label">MESSAGES</span><h2>Chat</h2></div></div>
+    <div className="sub-scroll"><div className="empty-state locked">
+      <span>⊘</span><strong>Chat is locked.</strong>
+      <small>Chat opens once you accept a quote and your haul is booked. While a request is still pending there is nothing to coordinate yet.</small>
+      <button className="hw-primary" onClick={onNew}>Book a haul →</button>
+    </div></div>
+  </section>;
+
+  if (!jobId) return <section className="sub-page">
+    <div className="sub-head"><div><span className="micro-label">MESSAGES</span><h2>Chat</h2></div></div>
+    <div className="sub-scroll">
+      <p className="list-label">Booked hauls</p>
+      {jobs.map((job) => <button key={job.id} className="job-row" onClick={() => onPick(job.id)}>
+        <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+        <strong>{job.item}</strong><small>{shortDate(job.scheduledDate)} · {job.scheduledTime}</small>
+        <b>{job.quoteCents ? money(job.quoteCents) : "—"}</b><i aria-hidden="true">→</i>
+      </button>)}
+    </div>
+  </section>;
+
+  return <ChatThread jobId={jobId} showBack={jobs.length > 1} onBack={onBack} />;
+}
+
+function ChatThread({ jobId, showBack, onBack }: { jobId: string; showBack: boolean; onBack: () => void }) {
+  const [job, setJob] = useState<JobDetails | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      try {
+        const data = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" }).then(readJson) as { job: JobDetails };
+        if (active) setJob(data.job);
+      } catch { /* retry on next poll */ }
+    }
+    void poll();
+    const timer = window.setInterval(() => void poll(), 5000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [jobId]);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [job?.messages.length]);
+
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    if (!message.trim()) return;
+    setBusy(true); setError("");
+    try {
+      const data = await fetch(`/api/jobs/${jobId}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: message }) }).then(readJson) as { job: JobDetails };
+      setJob(data.job); setMessage("");
+    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+  }
+
+  return <section className="chat-page">
+    <div className="chat-head">
+      {showBack && <button className="back-link" onClick={onBack}>←</button>}
+      <div><strong>Haulway</strong><small>{job ? job.item : "Loading…"}</small></div>
+      <span className="chat-live" aria-hidden="true" />
+    </div>
+    <div className="chat-scroll">
+      {job?.messages.length === 0 && <p className="chat-hint">Your haul is booked. Message Haulway here about timing, access, or payment.</p>}
+      {job?.messages.map((entry) => <div key={entry.id} className={`chat-message ${entry.sender}`}>
+        <small>{entry.sender === "customer" ? "You" : entry.sender === "operator" ? "Haulway" : "Update"}</small>
+        <p>{entry.body}</p>
+      </div>)}
+      <div ref={endRef} />
+    </div>
+    {error && <p className="chat-error">{error}</p>}
+    <form className="chat-composer" onSubmit={send}>
+      <input aria-label="Message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message Haulway…" />
+      <button disabled={busy || !message.trim()} aria-label="Send">↑</button>
+    </form>
+  </section>;
+}
+
+/* ---------- Boot + auth ---------- */
 
 function Splash() {
   return <main className="splash-screen"><div className="splash-route route-a" /><div className="splash-route route-b" /><Logo light /><h1>Junk gone.<br />Small moves made simple.</h1><span className="splash-loader"><i /></span></main>;
@@ -131,24 +376,24 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
-  return <main className="auth-shell">
-    <section className="auth-brand-panel"><Logo light /><div className="auth-art" aria-hidden="true"><span>01</span><i /><b>02</b></div><h1>Clear space.<br /><em>Keep moving.</em></h1><a href="/driver">Operator portal →</a></section>
-    <section className="auth-form-panel"><div className="mobile-auth-logo"><Logo /></div><form className="auth-card" onSubmit={register}>
-      <span className="micro-label">WELCOME</span><h2>Let&apos;s get started.</h2><p>Name and number. That&apos;s it.</p>
+  return <main className="auth-screen">
+    <div className="auth-top"><Logo /><div className="auth-art" aria-hidden="true"><i /><b>02</b><span>01</span></div></div>
+    <form className="auth-sheet" onSubmit={register}>
+      <span className="micro-label">WELCOME</span>
+      <h1>Clear space.<br /><em>Keep moving.</em></h1>
+      <p>Name and number. That&apos;s it.</p>
       <label>Your name<input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your full name" /></label>
-      <label>Mobile number<div className="phone-field"><span>+1</span><input autoComplete="tel" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(780) 555-0148" /></div></label>
+      <label>Mobile number<span className="phone-field"><span>+1</span><input autoComplete="tel" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(780) 555-0148" /></span></label>
       {error && <p className="field-error" role="alert">{error}</p>}
       <button className="hw-primary wide" disabled={busy}>{busy ? "Saving…" : "Continue →"}</button>
       <small>Your details are saved securely for your requests.</small>
-    </form></section>
+    </form>
   </main>;
 }
 
-function CustomerHeader({ customer, onHome, onSignOut }: { customer: Customer; onHome: () => void; onSignOut: () => void }) {
-  return <header className="customer-header"><button onClick={onHome}><Logo /></button><nav><span>{customer.phone}</span><button onClick={onSignOut}>Sign out</button></nav><span className="customer-avatar">{initials(customer.name)}</span></header>;
-}
+/* ---------- Request flow ---------- */
 
-function RequestFlow({ service, customer, onCancel, onCreated }: { service: Service; customer: Customer; onCancel: () => void; onCreated: (job: JobDetails) => void }) {
+function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCancel: () => void; onCreated: (job: JobDetails) => void | Promise<void> }) {
   const [step, setStep] = useState(1);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [item, setItem] = useState("");
@@ -160,6 +405,7 @@ function RequestFlow({ service, customer, onCancel, onCreated }: { service: Serv
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const title = service === "junk" ? "Junk removal" : "Small move";
+  const steps = ["Photos", "Details", "Time"];
 
   function addFiles(event: ChangeEvent<HTMLInputElement>) {
     const room = 8 - uploads.length;
@@ -170,6 +416,8 @@ function RequestFlow({ service, customer, onCancel, onCreated }: { service: Serv
   function removeFile(upload: Upload) { URL.revokeObjectURL(upload.url); setUploads((current) => current.filter((entry) => entry.id !== upload.id)); }
   function continuePhotos() { if (!uploads.some((entry) => entry.kind === "image")) return setError("Add at least one photo to continue."); setError(""); setStep(2); }
 
+  const detailsReady = item.trim() && pickup.trim() && (service !== "move" || dropoff.trim());
+
   async function submit() {
     setBusy(true); setError("");
     let pendingJobId: string | null = null;
@@ -178,13 +426,8 @@ function RequestFlow({ service, customer, onCancel, onCreated }: { service: Serv
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          serviceType: service,
-          item,
-          pickup,
-          dropoff,
-          notes,
-          scheduledDate: date,
-          scheduledTime: time,
+          serviceType: service, item, pickup, dropoff, notes,
+          scheduledDate: date, scheduledTime: time,
           media: uploads.map(({ file }) => ({ filename: file.name, contentType: file.type, sizeBytes: file.size })),
         }),
       }).then(readJson) as {
@@ -196,89 +439,87 @@ function RequestFlow({ service, customer, onCancel, onCreated }: { service: Serv
       const storage = createClient(data.storage.url, data.storage.publishableKey, {
         auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
       }).storage.from(data.storage.bucket);
-      const uploadResults = await Promise.allSettled(uploads.map(async ({ file }, index) => {
+      const results = await Promise.allSettled(uploads.map(async ({ file }, index) => {
         const target = data.uploads[index];
         if (!target) throw new Error("The upload plan is incomplete.");
-        const { error: uploadError } = await storage.uploadToSignedUrl(target.path, target.token, file, {
-          contentType: file.type,
-          upsert: false,
-        });
+        const { error: uploadError } = await storage.uploadToSignedUrl(target.path, target.token, file, { contentType: file.type, upsert: false });
         if (uploadError) throw uploadError;
       }));
-      const failedUpload = uploadResults.find((result): result is PromiseRejectedResult => result.status === "rejected");
-      if (failedUpload) throw failedUpload.reason;
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failed) throw failed.reason;
       const completed = await fetch(`/api/jobs/${data.jobId}/uploads`, { method: "POST" }).then(readJson) as { job: JobDetails };
       uploads.forEach((upload) => URL.revokeObjectURL(upload.url));
-      onCreated(completed.job);
+      await onCreated(completed.job);
     } catch (caught) {
       if (pendingJobId) void fetch(`/api/jobs/${pendingJobId}/uploads`, { method: "DELETE" });
       setError(errorMessage(caught));
     } finally { setBusy(false); }
   }
 
-  return <main className="request-page">
-    <header className="request-header"><button onClick={onCancel}><Logo /></button><span>{customer.name} · {title}</span><button className="request-close" onClick={onCancel}>×</button></header>
-    <div className="request-layout"><aside className="request-progress"><span className="micro-label light">NEW REQUEST</span><h1>{title}</h1><ol>
-      {["Photos", "Details", "Schedule"].map((label, index) => <li key={label} className={step === index + 1 ? "active" : step > index + 1 ? "done" : ""}><span>{step > index + 1 ? "✓" : index + 1}</span>{label}</li>)}
-    </ol><div className="photo-rule"><strong>At least one photo required</strong><small>Add multiple photos and videos.</small></div></aside>
-    <section className="request-form">
-      {step === 1 && <div className="request-step"><span className="micro-label">STEP 1 OF 3</span><h2>Show us what&apos;s moving.</h2><p>Photos are required. Video is welcome.</p>
-        <label className={`photo-dropzone ${error ? "error" : ""}`}><input type="file" accept="image/*,video/*" multiple onChange={addFiles} /><span className="camera-mark">+</span><strong>Add photos or video</strong><small>At least one photo · up to 8 files</small></label>
-        {uploads.length > 0 && <div className="photo-grid">{uploads.map((upload) => <figure key={upload.id}>{upload.kind === "video" ? <video src={upload.url} muted playsInline /> : <img src={upload.url} alt={upload.file.name} />}<span className="media-kind">{upload.kind}</span><button onClick={() => removeFile(upload)}>×</button></figure>)}{uploads.length < 8 && <label className="add-more"><input type="file" accept="image/*,video/*" multiple onChange={addFiles} /><span>+</span><small>Add more</small></label>}</div>}
-        {error && <p className="photo-error" role="alert">{error}</p>}<div className="request-actions"><button className="link-button" onClick={onCancel}>Cancel</button><button className="hw-primary" onClick={continuePhotos}>Continue →</button></div>
+  return <div className="flow-shell">
+    <header className="flow-bar">
+      <button className="flow-back" onClick={() => (step === 1 ? onCancel() : setStep(step - 1))} aria-label="Back">←</button>
+      <div className="flow-title"><small>{title}</small><span>Step {step} of 3 · {steps[step - 1]}</span></div>
+      <button className="flow-close" onClick={onCancel} aria-label="Cancel">×</button>
+    </header>
+    <div className="flow-track"><i style={{ width: `${(step / 3) * 100}%` }} /></div>
+
+    <div className="flow-body">
+      {step === 1 && <div className="flow-step">
+        <h2>Show us what&apos;s moving.</h2>
+        <p>At least one photo. Video is welcome.</p>
+        <label className={`photo-dropzone ${error ? "error" : ""}`}>
+          <input type="file" accept="image/*,video/*" multiple onChange={addFiles} />
+          <span className="camera-mark">+</span><strong>Add photos or video</strong><small>Up to 8 files · 25 MB each</small>
+        </label>
+        {uploads.length > 0 && <div className="photo-grid">
+          {uploads.map((upload) => <figure key={upload.id}>
+            {upload.kind === "video" ? <video src={upload.url} muted playsInline /> : <img src={upload.url} alt={upload.file.name} />}
+            <span className="media-kind">{upload.kind}</span>
+            <button onClick={() => removeFile(upload)} aria-label="Remove">×</button>
+          </figure>)}
+          {uploads.length < 8 && <label className="add-more"><input type="file" accept="image/*,video/*" multiple onChange={addFiles} /><span>+</span><small>More</small></label>}
+        </div>}
+        {error && <p className="photo-error" role="alert">{error}</p>}
       </div>}
-      {step === 2 && <div className="request-step"><span className="micro-label">STEP 2 OF 3</span><h2>A few details.</h2><p>Keep it simple.</p><div className="compact-form">
-        <label>What is it?<input value={item} onChange={(event) => setItem(event.target.value)} placeholder={service === "junk" ? "Couch, boxes, yard waste…" : "Bed and dresser…"} /></label>
-        <label>Pickup<input value={pickup} onChange={(event) => setPickup(event.target.value)} placeholder="Pickup address in Edmonton" /></label>
-        {service === "move" && <label>Drop-off<input value={dropoff} onChange={(event) => setDropoff(event.target.value)} placeholder="Drop-off address" /></label>}
-        <label>Anything else?<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Stairs, parking, heavy items…" /></label>
-      </div><div className="request-actions"><button className="link-button" onClick={() => setStep(1)}>← Back</button><button className="hw-primary" disabled={!item.trim() || !pickup.trim() || (service === "move" && !dropoff.trim())} onClick={() => setStep(3)}>Continue →</button></div></div>}
-      {step === 3 && <div className="request-step"><span className="micro-label">STEP 3 OF 3</span><h2>Pick a time.</h2><p>We&apos;ll confirm the final window in chat.</p><div className="compact-form">
-        <label>Preferred date<input type="date" min={localDate()} value={date} onChange={(event) => setDate(event.target.value)} /></label>
-        <label>Pickup window<select value={time} onChange={(event) => setTime(event.target.value)}><option>8 AM – 10 AM</option><option>10 AM – 12 PM</option><option>1 PM – 3 PM</option><option>4 PM – 6 PM</option></select></label>
-      </div><div className="mini-summary"><span>{uploads.length}</span><div><strong>{item}</strong><small>{uploads.filter((entry) => entry.kind === "image").length} photo(s) · {uploads.filter((entry) => entry.kind === "video").length} video(s)</small></div><b>{title}</b></div>
-      {error && <p className="photo-error" role="alert">{error}</p>}<div className="request-actions"><button className="link-button" onClick={() => setStep(2)}>← Back</button><button className="hw-primary" disabled={busy} onClick={submit}>{busy ? "Uploading…" : "Send request →"}</button></div></div>}
-    </section></div>
-  </main>;
-}
 
-function CustomerJobView({ initialJob, customer, notice, onNotice, onSignOut, onBack }: { initialJob: JobDetails; customer: Customer; notice: string; onNotice: (value: string) => void; onSignOut: () => void; onBack: () => void }) {
-  const [job, setJob] = useState(initialJob);
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let active = true;
-    async function poll() {
-      try {
-        const data = await fetch(`/api/jobs/${initialJob.id}`, { cache: "no-store" }).then(readJson) as { job: JobDetails };
-        if (active) setJob(data.job);
-      } catch { /* retry on next poll */ }
-    }
-    const timer = window.setInterval(() => void poll(), 5000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [initialJob.id]);
-  async function action(actionName: string, extra: Record<string, unknown> = {}) { setBusy(true); onNotice(""); try { const data = await fetch(`/api/jobs/${job.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: actionName, ...extra }) }).then(readJson) as { job: JobDetails }; setJob(data.job); } catch (caught) { onNotice(errorMessage(caught)); } finally { setBusy(false); } }
-  async function sendMessage(event: FormEvent) { event.preventDefault(); if (!message.trim()) return; setBusy(true); try { const data = await fetch(`/api/jobs/${job.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: message }) }).then(readJson) as { job: JobDetails }; setJob(data.job); setMessage(""); } catch (caught) { onNotice(errorMessage(caught)); } finally { setBusy(false); } }
+      {step === 2 && <div className="flow-step">
+        <h2>A few details.</h2>
+        <p>Keep it simple.</p>
+        <div className="compact-form">
+          <label>What is it?<input value={item} onChange={(event) => setItem(event.target.value)} placeholder={service === "junk" ? "Couch, boxes, yard waste…" : "Bed and dresser…"} /></label>
+          <label>Pickup<input value={pickup} onChange={(event) => setPickup(event.target.value)} placeholder="Pickup address in Edmonton" /></label>
+          {service === "move" && <label>Drop-off<input value={dropoff} onChange={(event) => setDropoff(event.target.value)} placeholder="Drop-off address" /></label>}
+          <label>Anything else?<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Stairs, parking, heavy items…" /></label>
+        </div>
+      </div>}
 
-  return <main className="job-page"><CustomerHeader customer={customer} onHome={onBack} onSignOut={onSignOut} /><div className="job-shell">
-    <button className="job-back" onClick={onBack}>← All requests</button>{notice && <div className="inline-notice">{notice}</div>}
-    <div className="job-heading"><div><span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span><h1>{job.item}</h1><p>{shortDate(job.scheduledDate)} · {job.scheduledTime}</p></div><span className="job-id">#{job.id.slice(0, 8).toUpperCase()}</span></div>
-    <div className="job-columns"><section className="job-overview">
-      <div className="job-media">{job.media.map((media) => media.contentType.startsWith("video/") ? <video key={media.id} src={media.url} controls playsInline /> : <img key={media.id} src={media.url} alt={media.filename} />)}</div>
-      <div className="job-info-grid"><div><small>PICKUP</small><strong>{job.pickup}</strong></div>{job.dropoff && <div><small>DROP-OFF</small><strong>{job.dropoff}</strong></div>}<div><small>NOTES</small><strong>{job.notes || "No extra notes"}</strong></div></div>
-      {job.quoteCents != null && <div className="customer-quote"><div><small>YOUR QUOTE</small><strong>{money(job.quoteCents)}</strong></div>{job.status === "quoted" && <div className="quote-actions"><button className="decline-button" disabled={busy} onClick={() => void action("decline_quote")}>Decline</button><button className="hw-primary" disabled={busy} onClick={() => void action("accept_quote")}>Accept quote</button></div>}</div>}
-      {(job.status === "accepted" || job.status === "in_progress" || job.status === "completed") && <div className="payment-choice"><span className="micro-label">PAYMENT</span><h3>{job.paymentMethod ? `Pay by ${job.paymentMethod === "interac" ? "Interac e-Transfer" : "cash"}` : "How will you pay?"}</h3><p>{job.paymentMethod === "interac" ? "We’ll send the Interac email in chat." : job.paymentMethod === "cash" ? "Pay the operator directly in cash." : "No online payment is collected."}</p>{!job.paymentMethod && <div><button disabled={busy} onClick={() => void action("payment_method", { method: "interac" })}>Interac</button><button disabled={busy} onClick={() => void action("payment_method", { method: "cash" })}>Cash</button></div>}<span className={`payment-state ${job.paymentStatus}`}>{job.paymentStatus === "paid" ? "Payment received" : "Not marked paid"}</span></div>}
-      {job.status !== "completed" && job.status === "accepted" && <button className="complete-button" disabled={busy || job.customerConfirmed} onClick={() => void action("confirm_complete")}>{job.customerConfirmed ? "You confirmed completion ✓" : "Confirm job is complete"}</button>}
-      {job.status === "completed" && <div className="complete-banner">✓ Job complete</div>}
-    </section>
-    <ChatPanel messages={job.messages} value={message} setValue={setMessage} onSubmit={sendMessage} busy={busy} />
+      {step === 3 && <div className="flow-step">
+        <h2>Pick a time.</h2>
+        <p>We&apos;ll confirm the final window in chat.</p>
+        <div className="compact-form">
+          <label>Preferred date<input type="date" min={localDate()} value={date} onChange={(event) => setDate(event.target.value)} /></label>
+          <label>Pickup window<select value={time} onChange={(event) => setTime(event.target.value)}>
+            <option>8 AM – 10 AM</option><option>10 AM – 12 PM</option><option>1 PM – 3 PM</option><option>4 PM – 6 PM</option>
+          </select></label>
+        </div>
+        <div className="mini-summary">
+          <span>{uploads.length}</span>
+          <div><strong>{item}</strong><small>{uploads.filter((entry) => entry.kind === "image").length} photo(s) · {uploads.filter((entry) => entry.kind === "video").length} video(s)</small></div>
+        </div>
+        {error && <p className="photo-error" role="alert">{error}</p>}
+      </div>}
     </div>
-  </div></main>;
+
+    <div className="flow-foot">
+      {step === 1 && <button className="hw-primary wide" onClick={continuePhotos}>Continue<span>→</span></button>}
+      {step === 2 && <button className="hw-primary wide" disabled={!detailsReady} onClick={() => setStep(3)}>Continue<span>→</span></button>}
+      {step === 3 && <button className="hw-primary wide" disabled={busy} onClick={submit}>{busy ? "Uploading…" : "Send request"}<span>→</span></button>}
+    </div>
+  </div>;
 }
 
-function ChatPanel({ messages, value, setValue, onSubmit, busy }: { messages: JobDetails["messages"]; value: string; setValue: (value: string) => void; onSubmit: (event: FormEvent) => void; busy: boolean }) {
-  return <aside className="chat-panel"><header><span className="micro-label">CHAT</span><h2>Haulway</h2></header><div className="chat-messages">{messages.map((entry) => <div key={entry.id} className={`chat-message ${entry.sender}`}><small>{entry.sender === "customer" ? "You" : entry.sender === "operator" ? "Haulway" : "Update"}</small><p>{entry.body}</p></div>)}</div><form onSubmit={onSubmit}><input aria-label="Message" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Write a message…" /><button disabled={busy || !value.trim()}>Send</button></form></aside>;
-}
+/* ---------- helpers ---------- */
 
 async function readJson(response: Response) {
   const data = await response.json() as { error?: string };
