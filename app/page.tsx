@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
 import { money, shortDate } from "@/lib/contracts";
 
-type Screen = "boot" | "auth" | "app" | "request";
+type Screen = "boot" | "auth" | "app" | "request" | "sent";
 type Tab = "home" | "requests" | "chat";
 type Service = "junk" | "move";
 type Upload = { id: string; file: File; url: string; kind: "image" | "video" };
@@ -79,11 +79,15 @@ export default function CustomerApp() {
   if (screen === "boot") return <Splash />;
   if (screen === "auth") return <Registration onRegistered={(next) => { setCustomer(next); setScreen("app"); void refreshJobs(); }} />;
   if (screen === "request" && customer) {
-    return <RequestFlow service={service} onCancel={() => setScreen("app")} onCreated={async (job) => {
-      setScreen("app"); setTab("requests"); setOpenJobId(job.id);
-      setNotice("Request sent. Your quote will land here.");
+    return <RequestFlow service={service} onCancel={() => setScreen("app")} onCreated={async () => {
+      setScreen("sent");
       await refreshJobs();
     }} />;
+  }
+  /* Straight to the requests list — the customer just filled this in, so there is no
+     reason to show their own photos back to them. */
+  if (screen === "sent") {
+    return <RequestSent onDone={() => { setTab("requests"); setOpenJobId(null); setNotice(""); setScreen("app"); void refreshJobs(); }} />;
   }
   if (!customer) return <Splash />;
 
@@ -355,6 +359,25 @@ function ChatThread({ jobId, showBack, onBack }: { jobId: string; showBack: bool
   </section>;
 }
 
+/* ---------- Request sent ---------- */
+
+function RequestSent({ onDone }: { onDone: () => void }) {
+  /* Held in a ref so the parent's 5s job poll re-rendering us never restarts the timer. */
+  const done = useRef(onDone);
+  useEffect(() => { done.current = onDone; }, [onDone]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => done.current(), 5000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return <main className="sent-screen">
+    <span className="sent-check" aria-hidden="true"><i /></span>
+    <h1>Request sent.</h1>
+    <p>A driver will be with you shortly. Your quote lands in Requests once we&apos;ve looked over your photos.</p>
+    <button className="hw-primary wide" onClick={() => done.current()}>View my requests<span aria-hidden="true">→</span></button>
+  </main>;
+}
+
 /* ---------- Boot + auth ---------- */
 
 function Splash() {
@@ -393,7 +416,7 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
 
 /* ---------- Request flow ---------- */
 
-function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCancel: () => void; onCreated: (job: JobDetails) => void | Promise<void> }) {
+function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCancel: () => void; onCreated: () => void | Promise<void> }) {
   const [step, setStep] = useState(1);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [pickup, setPickup] = useState("");
@@ -448,9 +471,9 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
       }));
       const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failed) throw failed.reason;
-      const completed = await fetch(`/api/jobs/${data.jobId}/uploads`, { method: "POST" }).then(readJson) as { job: JobDetails };
+      await fetch(`/api/jobs/${data.jobId}/uploads`, { method: "POST" }).then(readJson);
       uploads.forEach((upload) => URL.revokeObjectURL(upload.url));
-      await onCreated(completed.job);
+      await onCreated();
     } catch (caught) {
       if (pendingJobId) void fetch(`/api/jobs/${pendingJobId}/uploads`, { method: "DELETE" });
       setError(errorMessage(caught));
