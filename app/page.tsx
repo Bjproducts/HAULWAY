@@ -2,13 +2,13 @@
 
 /* eslint-disable @next/next/no-img-element, jsx-a11y/media-has-caption */
 
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
 import { money, shortDate } from "@/lib/contracts";
 
 type Screen = "boot" | "auth" | "app" | "request" | "sent";
-type Tab = "home" | "requests" | "chat";
+type Tab = "home" | "requests";
 type Service = "junk" | "move";
 type Upload = { id: string; file: File; url: string; kind: "image" | "video" };
 
@@ -61,8 +61,6 @@ export default function CustomerApp() {
     return () => window.clearInterval(timer);
   }, [screen, refreshJobs]);
 
-  const chatJobs = useMemo(() => jobs.filter(chatOpen), [jobs]);
-
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });
     setCustomer(null); setJobs([]); setOpenJobId(null); setChatJobId(null);
@@ -71,9 +69,7 @@ export default function CustomerApp() {
 
   function goTab(next: Tab) {
     setTab(next); setNotice("");
-    if (next !== "requests") setOpenJobId(null);
-    if (next !== "chat") setChatJobId(null);
-    if (next === "chat" && chatJobs.length === 1) setChatJobId(chatJobs[0].id);
+    if (next !== "requests") { setOpenJobId(null); setChatJobId(null); }
   }
 
   if (screen === "boot") return <Splash />;
@@ -100,24 +96,25 @@ export default function CustomerApp() {
 
       <main className="app-body">
         {tab === "home" && <HomeTab customer={customer} activeCount={jobs.filter((job) => job.status !== "completed").length} onPick={(picked) => { setService(picked); setScreen("request"); }} />}
-        {tab === "requests" && (openJobId
-          ? <JobDetail jobId={openJobId} notice={notice} onNotice={setNotice} onBack={() => { setOpenJobId(null); setNotice(""); void refreshJobs(); }} onOpenChat={(id) => { setChatJobId(id); setTab("chat"); setOpenJobId(null); }} onChanged={refreshJobs} />
-          : <RequestsTab jobs={jobs} notice={notice} onOpen={setOpenJobId} onNew={() => goTab("home")} />)}
-        {tab === "chat" && <ChatTab jobs={chatJobs} jobId={chatJobId} onPick={setChatJobId} onBack={() => setChatJobId(null)} onNew={() => goTab("home")} />}
+        {/* Requests is three levels deep: list → this request → this request's chat. */}
+        {tab === "requests" && (chatJobId
+          ? <ChatThread jobId={chatJobId} onBack={() => setChatJobId(null)} />
+          : openJobId
+            ? <JobDetail jobId={openJobId} notice={notice} onNotice={setNotice} onBack={() => { setOpenJobId(null); setNotice(""); void refreshJobs(); }} onOpenChat={setChatJobId} onChanged={refreshJobs} />
+            : <RequestsTab jobs={jobs} notice={notice} onOpen={setOpenJobId} onNew={() => goTab("home")} />)}
       </main>
 
       <nav className="tab-bar">
         <TabButton icon="⌂" label="Home" active={tab === "home"} onClick={() => goTab("home")} />
         <TabButton icon="▤" label="Requests" active={tab === "requests"} badge={jobs.filter((job) => job.status !== "completed").length} onClick={() => goTab("requests")} />
-        <TabButton icon="✉" label="Chat" active={tab === "chat"} locked={!chatJobs.length} badge={chatJobs.length} onClick={() => goTab("chat")} />
       </nav>
     </div>
   );
 }
 
-function TabButton({ icon, label, active, badge = 0, locked = false, onClick }: { icon: string; label: string; active: boolean; badge?: number; locked?: boolean; onClick: () => void }) {
-  return <button className={`tab-button ${active ? "active" : ""} ${locked ? "locked" : ""}`} onClick={onClick} aria-current={active ? "page" : undefined}>
-    <span className="tab-icon">{locked ? "⊘" : icon}{!locked && badge > 0 && <i>{badge}</i>}</span>{label}
+function TabButton({ icon, label, active, badge = 0, onClick }: { icon: string; label: string; active: boolean; badge?: number; onClick: () => void }) {
+  return <button className={`tab-button ${active ? "active" : ""}`} onClick={onClick} aria-current={active ? "page" : undefined}>
+    <span className="tab-icon">{icon}{badge > 0 && <i>{badge}</i>}</span>{label}
   </button>;
 }
 
@@ -278,34 +275,9 @@ function JobDetail({ jobId, notice, onNotice, onBack, onOpenChat, onChanged }: {
   </section>;
 }
 
-/* ---------- Chat ---------- */
+/* ---------- Chat (per request) ---------- */
 
-function ChatTab({ jobs, jobId, onPick, onBack, onNew }: { jobs: Job[]; jobId: string | null; onPick: (id: string) => void; onBack: () => void; onNew: () => void }) {
-  if (!jobs.length) return <section className="sub-page">
-    <div className="sub-head"><div><span className="micro-label">MESSAGES</span><h2>Chat</h2></div></div>
-    <div className="sub-scroll"><div className="empty-state locked">
-      <span>⊘</span><strong>Chat is locked.</strong>
-      <small>Chat opens once you accept a quote and your haul is booked. While a request is still pending there is nothing to coordinate yet.</small>
-      <button className="hw-primary" onClick={onNew}>Book a haul →</button>
-    </div></div>
-  </section>;
-
-  if (!jobId) return <section className="sub-page">
-    <div className="sub-head"><div><span className="micro-label">MESSAGES</span><h2>Chat</h2></div></div>
-    <div className="sub-scroll">
-      <p className="list-label">Booked hauls</p>
-      {jobs.map((job) => <button key={job.id} className="job-row" onClick={() => onPick(job.id)}>
-        <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
-        <strong>{job.item}</strong><small>{shortDate(job.scheduledDate)} · {job.scheduledTime}</small>
-        <b>{job.quoteCents ? money(job.quoteCents) : "—"}</b><i aria-hidden="true">→</i>
-      </button>)}
-    </div>
-  </section>;
-
-  return <ChatThread jobId={jobId} showBack={jobs.length > 1} onBack={onBack} />;
-}
-
-function ChatThread({ jobId, showBack, onBack }: { jobId: string; showBack: boolean; onBack: () => void }) {
+function ChatThread({ jobId, onBack }: { jobId: string; onBack: () => void }) {
   const [job, setJob] = useState<JobDetails | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -339,8 +311,8 @@ function ChatThread({ jobId, showBack, onBack }: { jobId: string; showBack: bool
 
   return <section className="chat-page">
     <div className="chat-head">
-      {showBack && <button className="back-link" onClick={onBack}>←</button>}
-      <div><strong>Haulway</strong><small>{job ? job.item : "Loading…"}</small></div>
+      <button className="chat-back" onClick={onBack} aria-label="Back to request">←</button>
+      <div><strong>{job ? job.item : "Loading…"}</strong><small>Haulway · {job ? statusLabel(job.status) : "…"}</small></div>
       <span className="chat-live" aria-hidden="true" />
     </div>
     <div className="chat-scroll">
