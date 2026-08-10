@@ -1,4 +1,4 @@
-import { getD1 } from "@/db";
+import { getSupabase, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
 import { canAccessJob, getJobDetails, getJobRow } from "@/lib/jobs";
 import { getErrorMessage, jsonError } from "@/lib/responses";
@@ -16,8 +16,13 @@ export async function POST(request: Request, context: Context) {
     const { body } = await request.json() as { body?: string };
     const message = body?.trim() ?? "";
     if (!message || message.length > 1000) return jsonError("Enter a message under 1,000 characters.");
-    await getD1().prepare("INSERT INTO messages (id, job_id, sender, body) VALUES (?, ?, ?, ?)")
-      .bind(crypto.randomUUID(), id, session.role, message).run();
+    const { error } = await getSupabase().from("messages").insert({
+      id: crypto.randomUUID(),
+      job_id: id,
+      sender: session.role,
+      body: message,
+    });
+    throwDatabaseError(error);
     return Response.json({ job: await getJobDetails(id) }, { status: 201 });
   } catch (error) {
     return jsonError(getErrorMessage(error), 500);

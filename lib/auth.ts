@@ -1,4 +1,4 @@
-import { ensureSchema, getD1 } from "@/db";
+import { getSupabase, throwDatabaseError } from "@/db";
 
 const CUSTOMER_COOKIE = "haulway_customer_session";
 const OPERATOR_COOKIE = "haulway_operator_session";
@@ -18,38 +18,57 @@ export function normalizePhone(value: string) {
 }
 
 export async function createSession(role: "customer" | "operator", subjectId: string, request: Request) {
-  await ensureSchema();
   const token = `${crypto.randomUUID()}${crypto.randomUUID().replaceAll("-", "")}`;
   const tokenHash = await sha256(token);
   const expires = new Date(Date.now() + SESSION_SECONDS * 1000).toISOString();
-  await getD1().prepare("INSERT INTO sessions (token_hash, role, subject_id, expires_at) VALUES (?, ?, ?, ?)")
-    .bind(tokenHash, role, subjectId, expires).run();
+  const { error } = await getSupabase().from("sessions").insert({
+    token_hash: tokenHash,
+    role,
+    subject_id: subjectId,
+    expires_at: expires,
+  });
+  throwDatabaseError(error);
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   return `${cookieName(role)}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_SECONDS}${secure}`;
 }
 
 export async function destroySession(request: Request, role: "customer" | "operator") {
-  await ensureSchema();
   const token = readCookie(request, cookieName(role));
-  if (token) await getD1().prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256(token)).run();
+  if (token) {
+    const { error } = await getSupabase().from("sessions").delete().eq("token_hash", await sha256(token));
+    throwDatabaseError(error);
+  }
   return `${cookieName(role)}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`;
 }
 
 export async function getSession(request: Request, expectedRole?: "customer" | "operator"): Promise<AuthSession | null> {
-  await ensureSchema();
   const roles: Array<"customer" | "operator"> = expectedRole ? [expectedRole] : ["customer", "operator"];
   for (const role of roles) {
     const token = readCookie(request, cookieName(role));
     if (!token) continue;
-    const row = await getD1().prepare(`SELECT s.role, s.subject_id, c.name, c.phone
-      FROM sessions s LEFT JOIN customers c ON s.role = 'customer' AND c.id = s.subject_id
-      WHERE s.token_hash = ? AND s.role = ? AND s.expires_at > CURRENT_TIMESTAMP`)
-      .bind(await sha256(token), role).first<{ role: "customer" | "operator"; subject_id: string; name: string | null; phone: string | null }>();
-    if (row) {
+    const { data: session, error } = await getSupabase()
+      .from("sessions")
+      .select("role, subject_id")
+      .eq("token_hash", await sha256(token))
+      .eq("role", role)
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    throwDatabaseError(error);
+    if (session) {
+      let customer: AuthSession["customer"];
+      if (session.role === "customer") {
+        const { data, error: customerError } = await getSupabase()
+          .from("customers")
+          .select("id, name, phone")
+          .eq("id", session.subject_id)
+          .maybeSingle();
+        throwDatabaseError(customerError);
+        if (data) customer = { id: data.id, name: data.name, phone: data.phone };
+      }
       return {
-        role: row.role,
-        subjectId: row.subject_id,
-        customer: row.role === "customer" && row.name && row.phone ? { id: row.subject_id, name: row.name, phone: row.phone } : undefined,
+        role: session.role,
+        subjectId: session.subject_id,
+        customer,
       };
     }
   }

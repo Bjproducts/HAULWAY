@@ -1,4 +1,4 @@
-import { ensureSchema, getD1 } from "@/db";
+import { getSupabase, throwDatabaseError } from "@/db";
 import type { AuthSession } from "@/lib/auth";
 
 export type JobRow = {
@@ -17,8 +17,8 @@ export type JobRow = {
   quote_cents: number | null;
   payment_method: "interac" | "cash" | null;
   payment_status: "unpaid" | "paid";
-  customer_confirmed: number;
-  operator_confirmed: number;
+  customer_confirmed: boolean;
+  operator_confirmed: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -38,11 +38,18 @@ type MessageRow = {
   created_at: string;
 };
 
+type JobWithCustomer = Omit<JobRow, "customer_name" | "customer_phone"> & {
+  customers: { name: string; phone: string };
+};
+
 export async function getJobRow(id: string) {
-  await ensureSchema();
-  return getD1().prepare(`SELECT j.*, c.name AS customer_name, c.phone AS customer_phone
-    FROM jobs j JOIN customers c ON c.id = j.customer_id WHERE j.id = ?`)
-    .bind(id).first<JobRow>();
+  const { data, error } = await getSupabase()
+    .from("jobs")
+    .select("*, customers!inner(name, phone)")
+    .eq("id", id)
+    .maybeSingle();
+  throwDatabaseError(error);
+  return data ? flattenJob(data as JobWithCustomer) : null;
 }
 
 export function canAccessJob(session: AuthSession, job: JobRow) {
@@ -52,16 +59,24 @@ export function canAccessJob(session: AuthSession, job: JobRow) {
 export async function getJobDetails(id: string) {
   const job = await getJobRow(id);
   if (!job) return null;
-  const db = getD1();
-  const [media, messages] = await Promise.all([
-    db.prepare(`SELECT id, filename, content_type, size_bytes, created_at
-      FROM job_media WHERE job_id = ? ORDER BY created_at`).bind(id).all<MediaRow>(),
-    db.prepare(`SELECT id, sender, body, created_at
-      FROM messages WHERE job_id = ? ORDER BY created_at`).bind(id).all<MessageRow>(),
+  const db = getSupabase();
+  const [mediaResult, messagesResult] = await Promise.all([
+    db.from("job_media")
+      .select("id, filename, content_type, size_bytes, created_at")
+      .eq("job_id", id)
+      .order("created_at", { ascending: true }),
+    db.from("messages")
+      .select("id, sender, body, created_at")
+      .eq("job_id", id)
+      .order("created_at", { ascending: true }),
   ]);
+  throwDatabaseError(mediaResult.error);
+  throwDatabaseError(messagesResult.error);
+  const media = (mediaResult.data ?? []) as MediaRow[];
+  const messages = (messagesResult.data ?? []) as MessageRow[];
   return {
     ...mapJob(job),
-    media: media.results.map((item) => ({
+    media: media.map((item) => ({
       id: item.id,
       filename: item.filename,
       contentType: item.content_type,
@@ -69,12 +84,20 @@ export async function getJobDetails(id: string) {
       createdAt: item.created_at,
       url: `/api/media/${item.id}`,
     })),
-    messages: messages.results.map((message) => ({
+    messages: messages.map((message) => ({
       id: message.id,
       sender: message.sender,
       body: message.body,
       createdAt: message.created_at,
     })),
+  };
+}
+
+export function flattenJob(job: JobWithCustomer): JobRow {
+  return {
+    ...job,
+    customer_name: job.customers.name,
+    customer_phone: job.customers.phone,
   };
 }
 
@@ -93,10 +116,24 @@ export function mapJob(job: JobRow) {
     quoteCents: job.quote_cents,
     paymentMethod: job.payment_method,
     paymentStatus: job.payment_status,
-    customerConfirmed: Boolean(job.customer_confirmed),
-    operatorConfirmed: Boolean(job.operator_confirmed),
+    customerConfirmed: job.customer_confirmed,
+    operatorConfirmed: job.operator_confirmed,
     createdAt: job.created_at,
     updatedAt: job.updated_at,
   };
 }
 
+export async function addSystemMessage(jobId: string, body: string) {
+  const { error } = await getSupabase().from("messages").insert({
+    id: crypto.randomUUID(),
+    job_id: jobId,
+    sender: "system",
+    body,
+  });
+  throwDatabaseError(error);
+}
+
+export async function updateJob(id: string, values: Record<string, string | number | boolean | null>) {
+  const { error } = await getSupabase().from("jobs").update(values).eq("id", id);
+  throwDatabaseError(error);
+}

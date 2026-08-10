@@ -1,12 +1,11 @@
-import { ensureSchema, getD1 } from "@/db";
+import { getSupabase, throwDatabaseError } from "@/db";
 import { getSession } from "@/lib/auth";
 
 export async function GET(request: Request) {
-  await ensureSchema();
-  const [operator, session] = await Promise.all([
-    getD1().prepare("SELECT id FROM operators LIMIT 1").first<{ id: string }>(),
+  const [operatorResult, session] = await Promise.all([
+    getSupabase().from("operators").select("id").limit(1).maybeSingle(),
     getSession(request, "operator"),
   ]);
-  return Response.json({ configured: Boolean(operator), authenticated: session?.role === "operator" });
+  throwDatabaseError(operatorResult.error);
+  return Response.json({ configured: Boolean(operatorResult.data), authenticated: session?.role === "operator" });
 }
-

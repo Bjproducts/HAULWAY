@@ -1,6 +1,6 @@
-import { ensureSchema, getD1, getUploads } from "@/db";
+import { getSupabase, getUploads, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
-import { getJobDetails, mapJob, type JobRow } from "@/lib/jobs";
+import { flattenJob, getJobDetails, mapJob } from "@/lib/jobs";
 import { getErrorMessage, jsonError } from "@/lib/responses";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -9,17 +9,17 @@ const MAX_TOTAL_BYTES = 60 * 1024 * 1024;
 export async function GET(request: Request) {
   const session = await getApiSession(request);
   if (!session) return jsonError("Please sign in.", 401);
-  await ensureSchema();
   const operator = session.role === "operator";
-  const sql = `SELECT j.*, c.name AS customer_name, c.phone AS customer_phone
-    FROM jobs j JOIN customers c ON c.id = j.customer_id
-    ${operator ? "" : "WHERE j.customer_id = ?"}
-    ORDER BY CASE WHEN j.status = 'completed' THEN 1 ELSE 0 END, j.created_at DESC`;
-  const statement = getD1().prepare(sql);
-  const rows = operator
-    ? await statement.all<JobRow>()
-    : await statement.bind(session.subjectId).all<JobRow>();
-  return Response.json({ jobs: rows.results.map(mapJob) });
+  let query = getSupabase()
+    .from("jobs")
+    .select("*, customers!inner(name, phone)")
+    .order("created_at", { ascending: false });
+  if (!operator) query = query.eq("customer_id", session.subjectId);
+  const { data, error } = await query;
+  throwDatabaseError(error);
+  const rows = (data ?? []).map((job) => flattenJob(job as Parameters<typeof flattenJob>[0]));
+  rows.sort((left, right) => Number(left.status === "completed") - Number(right.status === "completed"));
+  return Response.json({ jobs: rows.map(mapJob) });
 }
 
 export async function POST(request: Request) {
@@ -27,6 +27,7 @@ export async function POST(request: Request) {
   if (!session || session.role !== "customer") return jsonError("Please sign in as a customer.", 401);
 
   const storedKeys: string[] = [];
+  let insertedJobId: string | null = null;
   try {
     const form = await request.formData();
     const serviceType = textField(form, "serviceType");
@@ -50,7 +51,6 @@ export async function POST(request: Request) {
     if (files.some((file) => file.size > MAX_FILE_BYTES)) return jsonError("Each file must be 25 MB or smaller.");
     if (files.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_BYTES) return jsonError("Uploads must total 60 MB or less.");
 
-    await ensureSchema();
     const jobId = crypto.randomUUID();
     const bucket = getUploads();
     const mediaRows: Array<{ id: string; key: string; file: File }> = [];
@@ -63,22 +63,42 @@ export async function POST(request: Request) {
       mediaRows.push({ id: mediaId, key, file });
     }
 
-    const db = getD1();
-    const statements = [
-      db.prepare(`INSERT INTO jobs
-        (id, customer_id, service_type, item, pickup, dropoff, notes, scheduled_date, scheduled_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(jobId, session.subjectId, serviceType, item, pickup, dropoff || null, notes, scheduledDate, scheduledTime),
-      ...mediaRows.map(({ id, key, file }) => db.prepare(`INSERT INTO job_media
-        (id, job_id, object_key, filename, content_type, size_bytes) VALUES (?, ?, ?, ?, ?, ?)`)
-        .bind(id, jobId, key, file.name.slice(0, 180), file.type, file.size)),
-      db.prepare("INSERT INTO messages (id, job_id, sender, body) VALUES (?, ?, 'system', ?)")
-        .bind(crypto.randomUUID(), jobId, "Request received. We’ll review the details and send your quote here."),
-    ];
-    await db.batch(statements);
+    const db = getSupabase();
+    const { error: jobError } = await db.from("jobs").insert({
+      id: jobId,
+      customer_id: session.subjectId,
+      service_type: serviceType,
+      item,
+      pickup,
+      dropoff: dropoff || null,
+      notes,
+      scheduled_date: scheduledDate,
+      scheduled_time: scheduledTime,
+    });
+    throwDatabaseError(jobError);
+    insertedJobId = jobId;
+
+    const { error: mediaError } = await db.from("job_media").insert(mediaRows.map(({ id, key, file }) => ({
+      id,
+      job_id: jobId,
+      object_key: key,
+      filename: file.name.slice(0, 180),
+      content_type: file.type,
+      size_bytes: file.size,
+    })));
+    throwDatabaseError(mediaError);
+
+    const { error: messageError } = await db.from("messages").insert({
+      id: crypto.randomUUID(),
+      job_id: jobId,
+      sender: "system",
+      body: "Request received. We’ll review the details and send your quote here.",
+    });
+    throwDatabaseError(messageError);
     return Response.json({ job: await getJobDetails(jobId) }, { status: 201 });
   } catch (error) {
     if (storedKeys.length) await Promise.all(storedKeys.map((key) => getUploads().delete(key)));
+    if (insertedJobId) await getSupabase().from("jobs").delete().eq("id", insertedJobId);
     return jsonError(getErrorMessage(error), 500);
   }
 }
