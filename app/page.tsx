@@ -396,12 +396,11 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
 function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCancel: () => void; onCreated: (job: JobDetails) => void | Promise<void> }) {
   const [step, setStep] = useState(1);
   const [uploads, setUploads] = useState<Upload[]>([]);
-  const [item, setItem] = useState("");
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
-  const [notes, setNotes] = useState("");
+  const [description, setDescription] = useState("");
   const [date, setDate] = useState(localDate());
-  const [time, setTime] = useState("10 AM – 12 PM");
+  const [time, setTime] = useState("10:00");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const title = service === "junk" ? "Junk removal" : "Small move";
@@ -416,7 +415,9 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
   function removeFile(upload: Upload) { URL.revokeObjectURL(upload.url); setUploads((current) => current.filter((entry) => entry.id !== upload.id)); }
   function continuePhotos() { if (!uploads.some((entry) => entry.kind === "image")) return setError("Add at least one photo to continue."); setError(""); setStep(2); }
 
-  const detailsReady = item.trim() && pickup.trim() && (service !== "move" || dropoff.trim());
+  /* Pickup is the only field the customer must fill. A move still needs somewhere to go. */
+  const detailsReady = pickup.trim() && (service !== "move" || dropoff.trim());
+  const summaryTitle = description.split("\n").map((line) => line.trim()).find(Boolean) || title;
 
   async function submit() {
     setBusy(true); setError("");
@@ -426,7 +427,7 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          serviceType: service, item, pickup, dropoff, notes,
+          serviceType: service, pickup, dropoff, description,
           scheduledDate: date, scheduledTime: time,
           media: uploads.map(({ file }) => ({ filename: file.name, contentType: file.type, sizeBytes: file.size })),
         }),
@@ -484,28 +485,39 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
       </div>}
 
       {step === 2 && <div className="flow-step">
-        <h2>A few details.</h2>
-        <p>Keep it simple.</p>
+        <h2>Where is it?</h2>
+        <p>Only the pickup address is required.</p>
         <div className="compact-form">
-          <label>What is it?<input value={item} onChange={(event) => setItem(event.target.value)} placeholder={service === "junk" ? "Couch, boxes, yard waste…" : "Bed and dresser…"} /></label>
-          <label>Pickup<input value={pickup} onChange={(event) => setPickup(event.target.value)} placeholder="Pickup address in Edmonton" /></label>
-          {service === "move" && <label>Drop-off<input value={dropoff} onChange={(event) => setDropoff(event.target.value)} placeholder="Drop-off address" /></label>}
-          <label>Anything else?<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Stairs, parking, heavy items…" /></label>
+          <label>
+            <span className="label-row">Pickup<em>Required</em></span>
+            <input value={pickup} onChange={(event) => setPickup(event.target.value)} placeholder="Pickup address in Edmonton" />
+          </label>
+          {service === "move" && <label>
+            <span className="label-row">Drop-off<em>Required</em></span>
+            <input value={dropoff} onChange={(event) => setDropoff(event.target.value)} placeholder="Drop-off address" />
+          </label>}
+          <label>
+            <span className="label-row">Description &amp; additional info<em className="opt">Optional</em></span>
+            <textarea rows={5} value={description} onChange={(event) => setDescription(event.target.value)} placeholder={service === "junk"
+              ? "Couch, boxes, yard waste… plus stairs, parking, or anything heavy we should know about."
+              : "Bed and dresser… plus stairs, elevator, parking, or anything heavy."} />
+          </label>
         </div>
       </div>}
 
       {step === 3 && <div className="flow-step">
         <h2>Pick a time.</h2>
-        <p>We&apos;ll confirm the final window in chat.</p>
+        <p>Choose whatever suits you — we&apos;ll confirm it in chat.</p>
         <div className="compact-form">
-          <label>Preferred date<input type="date" min={localDate()} value={date} onChange={(event) => setDate(event.target.value)} /></label>
-          <label>Pickup window<select value={time} onChange={(event) => setTime(event.target.value)}>
-            <option>8 AM – 10 AM</option><option>10 AM – 12 PM</option><option>1 PM – 3 PM</option><option>4 PM – 6 PM</option>
-          </select></label>
+          <label><span className="label-row">Preferred date</span><input type="date" min={localDate()} value={date} onChange={(event) => setDate(event.target.value)} /></label>
+          <label><span className="label-row">Preferred time</span><input type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label>
         </div>
         <div className="mini-summary">
           <span>{uploads.length}</span>
-          <div><strong>{item}</strong><small>{uploads.filter((entry) => entry.kind === "image").length} photo(s) · {uploads.filter((entry) => entry.kind === "video").length} video(s)</small></div>
+          <div>
+            <strong>{summaryTitle}</strong>
+            <small>{shortDate(date)} · {displayTime(time)} · {uploads.filter((entry) => entry.kind === "image").length} photo(s){uploads.some((entry) => entry.kind === "video") ? ` · ${uploads.filter((entry) => entry.kind === "video").length} video(s)` : ""}</small>
+          </div>
         </div>
         {error && <p className="photo-error" role="alert">{error}</p>}
       </div>}
@@ -530,4 +542,11 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 function wait(ms: number) { return new Promise((resolve) => window.setTimeout(resolve, ms)); }
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function localDate() { const date = new Date(); const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 10); }
+function displayTime(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return value.trim() || "—";
+  const hours = Number(match[1]);
+  if (hours > 23 || Number(match[2]) > 59) return value.trim();
+  return `${hours % 12 === 0 ? 12 : hours % 12}:${match[2]} ${hours < 12 ? "AM" : "PM"}`;
+}
 function statusLabel(status: string) { return ({ requested: "Quote pending", quoted: "Quote ready", accepted: "Booked", in_progress: "In progress", completed: "Complete" } as Record<string, string>)[status] ?? status; }

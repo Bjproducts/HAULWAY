@@ -37,27 +37,29 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as {
       serviceType?: string;
-      item?: string;
       pickup?: string;
       dropoff?: string;
-      notes?: string;
+      description?: string;
       scheduledDate?: string;
       scheduledTime?: string;
       media?: MediaInput[];
     };
     const serviceType = textField(body.serviceType);
-    const item = textField(body.item);
     const pickup = textField(body.pickup);
     const dropoff = textField(body.dropoff);
-    const notes = textField(body.notes);
+    const description = textField(body.description);
     const scheduledDate = textField(body.scheduledDate);
-    const scheduledTime = textField(body.scheduledTime);
+    const scheduledTime = normalizeTime(textField(body.scheduledTime));
     if (serviceType !== "junk" && serviceType !== "move") return jsonError("Choose a service.");
-    if (!item || item.length > 120) return jsonError("Tell us what needs hauling.");
     if (!pickup || pickup.length > 180) return jsonError("Enter the pickup address.");
     if (serviceType === "move" && !dropoff) return jsonError("Enter the drop-off address.");
     if (!scheduledDate || !scheduledTime) return jsonError("Choose a date and time.");
-    if (notes.length > 1000) return jsonError("Keep notes under 1,000 characters.");
+    if (description.length > 1000) return jsonError("Keep the description under 1,000 characters.");
+
+    /* The description is one free-text box. `item` is the headline the operator sees in
+       their list, so derive it from the first line and keep the full text in `notes`. */
+    const item = deriveItem(description, serviceType);
+    const notes = description === item ? "" : description;
 
     const media = Array.isArray(body.media) ? body.media.map(normalizeMedia) : [];
     if (!media.length || !media.some((file) => file.contentType.startsWith("image/"))) return jsonError("Add at least one photo.");
@@ -115,6 +117,24 @@ export async function POST(request: Request) {
 
 function textField(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function deriveItem(description: string, serviceType: "junk" | "move") {
+  const firstLine = description.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  if (!firstLine) return serviceType === "junk" ? "Junk removal" : "Small move";
+  /* Count by code point so an emoji is never sliced into a lone surrogate — Postgres
+     measures char_length the same way, and the column caps at 120. */
+  const points = Array.from(firstLine);
+  return points.length <= 120 ? firstLine : `${points.slice(0, 119).join("")}…`;
+}
+
+/* Accepts the browser's 24-hour "HH:MM" and stores a readable 12-hour label. */
+function normalizeTime(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match) return value.slice(0, 40);
+  const hours = Number(match[1]);
+  if (hours > 23 || Number(match[2]) > 59) return "";
+  return `${hours % 12 === 0 ? 12 : hours % 12}:${match[2]} ${hours < 12 ? "AM" : "PM"}`;
 }
 
 function normalizeMedia(value: MediaInput) {

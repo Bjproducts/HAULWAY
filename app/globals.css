@@ -248,7 +248,11 @@ button:disabled { cursor: not-allowed !important; opacity: .5; }
 .photo-error { margin-top: 10px; }
 .compact-form { display: grid; gap: 15px; }
 .compact-form label { display: grid; gap: 7px; color: #3d4b45; font-size: 12px; font-weight: 780; }
-.compact-form textarea { resize: vertical; }
+.compact-form textarea { resize: vertical; min-height: 118px; line-height: 1.45; }
+.compact-form input[type="time"], .compact-form input[type="date"] { appearance: none; -webkit-appearance: none; min-height: 52px; }
+.label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.label-row em { font-style: normal; font-size: 9px; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; color: var(--orange-dark); }
+.label-row em.opt { color: var(--muted); }
 .mini-summary { margin-top: 18px; padding: 14px; border-radius: 14px; background: #ecebe5; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; }
 .mini-summary > span { width: 40px; height: 40px; display: grid; place-items: center; background: var(--forest); color: white; border-radius: 10px; font-size: 13px; font-weight: 850; }
 .mini-summary > div { min-width: 0; display: grid; gap: 3px; }
