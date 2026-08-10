@@ -70,7 +70,7 @@ export default function DriverPortal() {
   if (gate === "boot") return <main className="driver-login-page"><div className="operator-loader"><DriverLogo /><span /></div></main>;
   if (gate === "setup" || gate === "login") return <OperatorGate mode={gate} error={error} onError={setError} onSuccess={() => { setError(""); setGate("dashboard"); }} />;
 
-  const activeCount = jobs.filter((job) => job.status !== "completed").length;
+  const activeCount = jobs.filter((job) => job.status !== "completed" && job.status !== "cancelled").length;
   const quotedCount = jobs.filter((job) => job.status === "quoted").length;
   const completedCount = jobs.filter((job) => job.status === "completed").length;
   return <main className="driver-portal">
@@ -125,7 +125,11 @@ function OperatorJob({ job, onChange, onError }: { job: JobDetails; onChange: (j
     <div className="driver-route"><div><i>A</i><span><small>PICKUP</small><strong>{job.pickup}</strong></span></div>{job.dropoff && <><em>TO</em><div><i>B</i><span><small>DROP-OFF</small><strong>{job.dropoff}</strong></span></div></>}</div>
     <div className="driver-note"><small>CUSTOMER NOTE</small><p>{job.notes || "No extra notes."}</p><b>{shortDate(job.scheduledDate)} · {job.scheduledTime}</b></div>
     <div className="operator-chat"><header><span className="micro-label">CHAT</span><small>Share your Interac email here when needed.</small></header><div className="chat-messages">{job.messages.map((entry) => <div key={entry.id} className={`chat-message ${entry.sender}`}><small>{entry.sender === "operator" ? "You" : entry.sender === "customer" ? job.customer.name : "Update"}</small><p>{entry.body}</p></div>)}</div><form onSubmit={sendMessage}><input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message customer…" /><button disabled={busy || !message.trim()}>Send</button></form></div>
-    <div className="quote-bar"><div><small>{job.quoteCents ? "CURRENT QUOTE" : "SEND A QUOTE"}</small><label>$<input inputMode="decimal" value={quote} onChange={(event) => setQuote(event.target.value.replace(/[^\d.]/g, ""))} /></label></div><button disabled={busy || !quote} onClick={() => void action("send_quote", { amount: Number(quote) })}>{job.quoteCents ? "Update quote →" : "Send quote →"}</button></div>
+    {job.status === "requested"
+      ? <button className="operator-accept" disabled={busy} onClick={() => void action("approve_request")}>Accept this request →</button>
+      : job.status === "cancelled"
+        ? <div className="operator-cancelled">Cancelled by the customer</div>
+        : <div className="quote-bar"><div><small>{job.quoteCents ? "CURRENT QUOTE" : "SEND A QUOTE"}</small><label>$<input inputMode="decimal" value={quote} onChange={(event) => setQuote(event.target.value.replace(/[^\d.]/g, ""))} /></label></div><button disabled={busy || !quote} onClick={() => void action("send_quote", { amount: Number(quote) })}>{job.quoteCents ? "Update quote →" : "Send quote →"}</button></div>}
     {job.paymentMethod && <div className="operator-payment"><div><small>PAYMENT</small><strong>{job.paymentMethod === "interac" ? "Interac e-Transfer" : "Cash"}</strong><span>{job.paymentStatus === "paid" ? "Received ✓" : "Waiting"}</span></div>{job.paymentStatus !== "paid" && <button disabled={busy} onClick={() => void action("mark_paid")}>Mark paid</button>}</div>}
     {job.status === "accepted" && <button className="operator-complete" disabled={busy || job.operatorConfirmed} onClick={() => void action("confirm_complete")}>{job.operatorConfirmed ? "You confirmed completion ✓" : "Confirm job complete"}</button>}
     {job.status === "completed" && <div className="complete-banner">✓ Confirmed complete by both sides</div>}
@@ -138,4 +142,4 @@ async function operatorFetch(input: string, init: RequestInit = {}) {
 }
 async function readJson(response: Response) { const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error || "Something went wrong."); return data; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Something went wrong."; }
-function statusLabel(status: string) { return ({ requested: "Needs quote", quoted: "Quote sent", accepted: "Booked", in_progress: "In progress", completed: "Complete" } as Record<string, string>)[status] ?? status; }
+function statusLabel(status: string) { return ({ requested: "Needs approval", approved: "Accepted — needs quote", quoted: "Quote sent", accepted: "Booked", in_progress: "In progress", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status; }

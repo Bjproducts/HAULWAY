@@ -44,9 +44,12 @@ button:disabled { cursor: not-allowed !important; opacity: .5; }
 .field-error, .photo-error, .driver-error { color: #c44921; font-size: 12px; margin: 2px 0 10px; }
 
 .status-pill { display: inline-flex; align-items: center; min-height: 22px; padding: 0 9px; border-radius: 999px; background: #eceae2; color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
+.status-pill.requested { background: #efeae0; color: #7a6a4f; }
+.status-pill.approved { background: #e6eefb; color: #2f5a94; }
 .status-pill.quoted { background: #fff1df; color: #a45421; }
 .status-pill.accepted, .status-pill.in_progress { background: #e2f2e8; color: #23704a; }
 .status-pill.completed { background: var(--forest); color: white; }
+.status-pill.cancelled { background: #f6e2dc; color: #9c412a; }
 
 .chat-message { max-width: 82%; align-self: flex-start; }
 .chat-message.customer, .chat-message.operator { align-self: flex-end; }
@@ -197,6 +200,44 @@ button:disabled { cursor: not-allowed !important; opacity: .5; }
 .detail-facts > div { background: var(--paper); padding: 13px 15px; display: grid; gap: 4px; }
 .detail-facts dt { color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
 .detail-facts dd { margin: 0; font-size: 14px; line-height: 1.4; }
+
+/* waiting for a driver to approve */
+.waiting-page { display: grid; grid-template-rows: auto minmax(0,1fr) auto; }
+.waiting-body { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; padding: 20px 26px; overflow-y: auto; }
+.waiting-pulse { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+.waiting-pulse i { width: 12px; height: 12px; border-radius: 50%; background: var(--orange); animation: wait-bounce 1.25s ease-in-out infinite; }
+.waiting-pulse i:nth-child(2) { animation-delay: .16s; background: var(--forest); }
+.waiting-pulse i:nth-child(3) { animation-delay: .32s; background: var(--lime); }
+@keyframes wait-bounce { 0%,60%,100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-9px); opacity: 1; } }
+.waiting-body h2 { margin: 0; font-size: 26px; letter-spacing: -.045em; }
+.waiting-body p { margin: 0; max-width: 32ch; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.waiting-meta { margin-top: 14px; padding: 8px 14px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 740; }
+.waiting-foot { padding: 14px 20px calc(env(safe-area-inset-bottom) + 16px); border-top: 1px solid var(--line); background: var(--paper); }
+
+.cancel-button { width: 100%; min-height: 50px; border: 1px solid #e2c3b6; border-radius: 12px; background: transparent; color: #b5482a; font-size: 14px; font-weight: 780; cursor: pointer; }
+.cancel-confirm { display: grid; gap: 11px; }
+.cancel-confirm p { margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
+.cancel-confirm > div { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.cancel-confirm button { min-height: 50px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font-size: 14px; font-weight: 760; cursor: pointer; }
+.cancel-confirm button.danger { border-color: #c44921; background: #c44921; color: white; }
+
+/* actions pinned above the chat composer */
+.chat-actions { display: grid; gap: 10px; padding: 0 14px; background: var(--paper); }
+.chat-actions:empty { display: none; }
+.chat-actions > *:first-child { margin-top: 12px; }
+.chat-action { border-radius: 14px; padding: 14px; background: var(--deep); color: white; display: grid; gap: 12px; }
+.chat-action > small { color: var(--lime); font-size: 9px; font-weight: 850; letter-spacing: .12em; }
+.chat-action.quote > div:first-child small { color: var(--lime); font-size: 9px; font-weight: 850; letter-spacing: .12em; }
+.chat-action.quote strong { display: block; margin-top: 4px; font-size: 29px; letter-spacing: -.03em; }
+.chat-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.chat-action-row .hw-primary { background: var(--orange); min-height: 48px; justify-content: center; }
+.chat-action-row .decline-button { min-height: 48px; }
+.pay-option { min-height: 48px; padding: 6px 8px; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; background: transparent; color: white; font-size: 13px; line-height: 1.25; font-weight: 780; cursor: pointer; }
+.payment-line { margin: 0; padding: 11px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--cream); color: var(--muted); font-size: 12px; line-height: 1.45; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.payment-line em { font-style: normal; font-size: 10px; font-weight: 850; color: #9b6b2f; margin-left: auto; }
+.payment-line em.paid { color: #28714c; }
+.chat-cancel { padding-bottom: 2px; }
+.chat-actions .complete-button, .chat-actions .complete-banner { margin-top: 0; }
 
 .quote-card { border-radius: 16px; padding: 18px; background: var(--deep); color: white; display: grid; gap: 14px; }
 .quote-card small { color: var(--lime); font-size: 9px; font-weight: 850; letter-spacing: .12em; }
@@ -412,6 +453,8 @@ button:disabled { cursor: not-allowed !important; opacity: .5; }
 .operator-payment span { color: var(--muted); font-size: 8px; }
 .operator-payment small { color: var(--muted); font-size: 8px; letter-spacing: .09em; }
 .operator-payment button { height: 36px; border: 0; background: var(--forest); color: white; padding: 0 13px; font-size: 8px; font-weight: 800; cursor: pointer; }
+.operator-accept { width: 100%; min-height: 52px; margin: 0 0 -23px; border: 0; background: var(--lime); color: var(--forest); font-size: 13px; font-weight: 850; cursor: pointer; }
+.operator-cancelled { margin: 0 -23px -23px; min-height: 56px; display: grid; place-items: center; background: #f6e2dc; color: #9c412a; font-size: 11px; font-weight: 820; }
 
 @media (max-width: 920px) {
   .driver-portal { grid-template-columns: 72px 1fr; }

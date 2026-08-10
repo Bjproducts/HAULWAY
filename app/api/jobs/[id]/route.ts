@@ -4,6 +4,9 @@ import { getErrorMessage, jsonError } from "@/lib/responses";
 
 type Context = { params: Promise<{ id: string }> };
 
+/* A customer can back out until they have accepted a quote. */
+const CANCELLABLE = new Set(["requested", "approved", "quoted"]);
+
 export async function GET(request: Request, context: Context) {
   const session = await getApiSession(request);
   if (!session) return jsonError("Please sign in.", 401);
@@ -23,9 +26,21 @@ export async function PATCH(request: Request, context: Context) {
     if (!job) return jsonError("Job not found.", 404);
     if (!canAccessJob(session, job)) return jsonError("You cannot access this job.", 403);
     const body = await request.json() as { action?: string; amount?: number; method?: string };
+    if (job.status === "cancelled") return jsonError("This request was cancelled.", 409);
 
-    if (body.action === "send_quote") {
+    if (body.action === "approve_request") {
       if (session.role !== "operator") return jsonError("Operator access required.", 403);
+      if (job.status !== "requested") return jsonError("This request was already accepted.");
+      await updateJob(id, { status: "approved" });
+      await addSystemMessage(id, "Haulway accepted your request. Your quote will arrive in this chat.");
+    } else if (body.action === "cancel_request") {
+      if (session.role !== "customer") return jsonError("Customer access required.", 403);
+      if (!CANCELLABLE.has(job.status)) return jsonError("This haul is already booked. Message Haulway in chat to change it.");
+      await updateJob(id, { status: "cancelled" });
+      await addSystemMessage(id, "The customer cancelled this request.");
+    } else if (body.action === "send_quote") {
+      if (session.role !== "operator") return jsonError("Operator access required.", 403);
+      if (job.status !== "approved" && job.status !== "quoted") return jsonError("Accept the request before sending a quote.");
       const amount = Number(body.amount);
       if (!Number.isFinite(amount) || amount < 1 || amount > 100000) return jsonError("Enter a valid quote amount.");
       const cents = Math.round(amount * 100);
@@ -33,14 +48,15 @@ export async function PATCH(request: Request, context: Context) {
       await addSystemMessage(id, `Quote sent: ${formatMoney(cents)}.`);
     } else if (body.action === "accept_quote") {
       if (session.role !== "customer") return jsonError("Customer access required.", 403);
-      if (!job.quote_cents) return jsonError("There is no quote to accept.");
+      if (job.status !== "quoted" || !job.quote_cents) return jsonError("There is no quote to accept.");
       await updateJob(id, { status: "accepted" });
       await addSystemMessage(id, `Quote accepted: ${formatMoney(job.quote_cents)}.`);
     } else if (body.action === "decline_quote") {
       if (session.role !== "customer") return jsonError("Customer access required.", 403);
-      if (!job.quote_cents) return jsonError("There is no quote to decline.");
-      await updateJob(id, { quote_cents: null, status: "requested" });
-      await addSystemMessage(id, "Quote declined. You can discuss a different price in chat.");
+      if (job.status !== "quoted" || !job.quote_cents) return jsonError("There is no quote to decline.");
+      /* Back to approved, not requested — the driver already took the job. */
+      await updateJob(id, { quote_cents: null, status: "approved" });
+      await addSystemMessage(id, "Quote declined. You can discuss a different price here.");
     } else if (body.action === "payment_method") {
       if (session.role !== "customer") return jsonError("Customer access required.", 403);
       if (job.status !== "accepted" && job.status !== "in_progress") return jsonError("Accept the quote before choosing payment.");

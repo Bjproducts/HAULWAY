@@ -21,7 +21,9 @@ export async function GET(request: Request) {
     .select("*, customers!inner(name, phone)")
     .eq("upload_complete", true)
     .order("created_at", { ascending: false });
-  if (!operator) query = query.eq("customer_id", session.subjectId);
+  /* A cancelled request disappears for the customer; the operator keeps seeing it
+     so they know a job they may have started is off. */
+  if (!operator) query = query.eq("customer_id", session.subjectId).neq("status", "cancelled");
   const { data, error } = await query;
   throwDatabaseError(error);
   const rows = (data ?? []).map((job) => flattenJob(job as Parameters<typeof flattenJob>[0]));
