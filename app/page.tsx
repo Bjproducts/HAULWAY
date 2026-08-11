@@ -5,7 +5,7 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
-import { BUILDING_TYPES, INTERAC_EMAIL, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
+import { BUILDING_TYPES, INTERAC_EMAIL, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
 
 type Screen = "boot" | "auth" | "app" | "request" | "sent";
 type Tab = "home" | "requests";
@@ -408,13 +408,16 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
   const [step, setStep] = useState(1);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [pickup, setPickup] = useState("");
+  const [pickupUnit, setPickupUnit] = useState("");
   const [pickupBuilding, setPickupBuilding] = useState("");
   const [pickupStairs, setPickupStairs] = useState("");
   const [dropoff, setDropoff] = useState("");
+  const [dropoffUnit, setDropoffUnit] = useState("");
   const [dropoffBuilding, setDropoffBuilding] = useState("");
   const [dropoffStairs, setDropoffStairs] = useState("");
   const [fragile, setFragile] = useState<boolean | null>(null);
   const [description, setDescription] = useState("");
+  const [infoOpen, setInfoOpen] = useState(false);
   const [date, setDate] = useState(localDate());
   const [time, setTime] = useState("10:00");
   const [error, setError] = useState("");
@@ -444,7 +447,8 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           serviceType: service, pickup, dropoff, description, fragile,
-          pickupBuilding, pickupStairs, dropoffBuilding, dropoffStairs,
+          pickupUnit, pickupBuilding, pickupStairs,
+          dropoffUnit, dropoffBuilding, dropoffStairs,
           scheduledDate: date, scheduledTime: time,
           media: uploads.map(({ file }) => ({ filename: file.name, contentType: file.type, sizeBytes: file.size })),
         }),
@@ -508,6 +512,7 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
         <LocationBlock
           title={service === "move" ? "Pickup" : "Pickup address"} index="A"
           address={pickup} onAddress={setPickup} placeholder="Pickup address in Edmonton"
+          unit={pickupUnit} onUnit={setPickupUnit}
           building={pickupBuilding} onBuilding={setPickupBuilding}
           stairs={pickupStairs} onStairs={setPickupStairs}
         />
@@ -515,6 +520,7 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
         {service === "move" && <LocationBlock
           title="Drop-off" index="B"
           address={dropoff} onAddress={setDropoff} placeholder="Drop-off address"
+          unit={dropoffUnit} onUnit={setDropoffUnit}
           building={dropoffBuilding} onBuilding={setDropoffBuilding}
           stairs={dropoffStairs} onStairs={setDropoffStairs}
         />}
@@ -527,13 +533,17 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
           </div>
         </div>
 
-        <div className="compact-form">
-          <label>
-            <span className="label-row">Description &amp; additional info<em className="opt">Optional</em></span>
-            <textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} placeholder={service === "junk"
-              ? "Couch, boxes, yard waste… plus parking or anything else we should know."
-              : "Bed and dresser… plus parking, elevator booking, or anything heavy."} />
-          </label>
+        <div className={`info-drop ${infoOpen ? "open" : ""}`}>
+          <button type="button" className="info-trigger" onClick={() => setInfoOpen((value) => !value)} aria-expanded={infoOpen} aria-controls="additional-info">
+            <span>Additional information</span>
+            <em>Optional</em>
+            <i aria-hidden="true">▾</i>
+          </button>
+          <div className="info-drop-body" id="additional-info">
+            <div className="info-drop-inner">
+              <textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Anything else we should know?" tabIndex={infoOpen ? 0 : -1} />
+            </div>
+          </div>
         </div>
       </div>}
 
@@ -563,14 +573,25 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
   </div>;
 }
 
-function LocationBlock({ title, index, address, onAddress, placeholder, building, onBuilding, stairs, onStairs }: {
+function LocationBlock({ title, index, address, onAddress, placeholder, unit, onUnit, building, onBuilding, stairs, onStairs }: {
   title: string; index: string; address: string; onAddress: (value: string) => void; placeholder: string;
+  unit: string; onUnit: (value: string) => void;
   building: string; onBuilding: (value: string) => void; stairs: string; onStairs: (value: string) => void;
 }) {
+  const needsUnit = building === NEEDS_UNIT;
   return <div className="loc-block">
     <div className="loc-head"><i aria-hidden="true">{index}</i><strong>{title}</strong><em>Required</em></div>
     <input value={address} onChange={(event) => onAddress(event.target.value)} placeholder={placeholder} aria-label={`${title} address`} />
     <ChipGroup label="Type of building" options={BUILDING_TYPES} value={building} onChange={onBuilding} />
+    {/* Revealed only for an apartment — the driver needs a door to knock on. */}
+    <div className={`unit-slot ${needsUnit ? "open" : ""}`} aria-hidden={!needsUnit}>
+      <div className="unit-slot-inner">
+        <label className="unit-field">
+          <span className="chip-label">Apartment / unit number</span>
+          <input value={unit} onChange={(event) => onUnit(event.target.value)} placeholder="e.g. 402" maxLength={20} tabIndex={needsUnit ? 0 : -1} />
+        </label>
+      </div>
+    </div>
     <ChipGroup label="Stairs" options={STAIRS_OPTIONS} value={stairs} onChange={onStairs} two />
   </div>;
 }

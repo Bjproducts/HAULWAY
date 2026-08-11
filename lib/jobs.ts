@@ -9,9 +9,11 @@ export type JobRow = {
   service_type: "junk" | "move";
   item: string;
   pickup: string;
+  pickup_unit: string | null;
   pickup_building: string | null;
   pickup_stairs: string | null;
   dropoff: string | null;
+  dropoff_unit: string | null;
   dropoff_building: string | null;
   dropoff_stairs: string | null;
   fragile: boolean | null;
@@ -114,9 +116,11 @@ export function mapJob(job: JobRow) {
     serviceType: job.service_type,
     item: job.item,
     pickup: job.pickup,
+    pickupUnit: job.pickup_unit,
     pickupBuilding: job.pickup_building,
     pickupStairs: job.pickup_stairs,
     dropoff: job.dropoff,
+    dropoffUnit: job.dropoff_unit,
     dropoffBuilding: job.dropoff_building,
     dropoffStairs: job.dropoff_stairs,
     fragile: job.fragile,

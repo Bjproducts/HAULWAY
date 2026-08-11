@@ -1,6 +1,6 @@
 import { getStorage, getSupabase, getSupabasePublicConfig, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
-import { BUILDING_TYPES, STAIRS_OPTIONS } from "@/lib/contracts";
+import { BUILDING_TYPES, NEEDS_UNIT, STAIRS_OPTIONS } from "@/lib/contracts";
 import { flattenJob, mapJob } from "@/lib/jobs";
 import { getErrorMessage, jsonError } from "@/lib/responses";
 
@@ -41,9 +41,11 @@ export async function POST(request: Request) {
     const body = await request.json() as {
       serviceType?: string;
       pickup?: string;
+      pickupUnit?: string;
       pickupBuilding?: string;
       pickupStairs?: string;
       dropoff?: string;
+      dropoffUnit?: string;
       dropoffBuilding?: string;
       dropoffStairs?: string;
       fragile?: boolean;
@@ -61,6 +63,9 @@ export async function POST(request: Request) {
     const dropoffBuilding = oneOf(body.dropoffBuilding, BUILDING_TYPES);
     const dropoffStairs = oneOf(body.dropoffStairs, STAIRS_OPTIONS);
     const fragile = typeof body.fragile === "boolean" ? body.fragile : null;
+    /* Only meaningful for an apartment — drop it otherwise so the row stays honest. */
+    const pickupUnit = pickupBuilding === NEEDS_UNIT ? unitField(body.pickupUnit) : null;
+    const dropoffUnit = dropoffBuilding === NEEDS_UNIT ? unitField(body.dropoffUnit) : null;
     const scheduledDate = textField(body.scheduledDate);
     const scheduledTime = normalizeTime(textField(body.scheduledTime));
     if (serviceType !== "junk" && serviceType !== "move") return jsonError("Choose a service.");
@@ -96,9 +101,11 @@ export async function POST(request: Request) {
       service_type: serviceType,
       item,
       pickup,
+      pickup_unit: pickupUnit,
       pickup_building: pickupBuilding,
       pickup_stairs: pickupStairs,
       dropoff: dropoff || null,
+      dropoff_unit: serviceType === "move" ? dropoffUnit : null,
       dropoff_building: serviceType === "move" ? dropoffBuilding : null,
       dropoff_stairs: serviceType === "move" ? dropoffStairs : null,
       fragile,
@@ -141,6 +148,10 @@ function textField(value: unknown) {
 function oneOf(value: unknown, allowed: readonly string[]) {
   const text = textField(value);
   return allowed.includes(text) ? text : null;
+}
+
+function unitField(value: unknown) {
+  return textField(value).slice(0, 20) || null;
 }
 
 function deriveItem(description: string, serviceType: "junk" | "move") {

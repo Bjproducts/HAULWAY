@@ -2,7 +2,9 @@
 export const INTERAC_EMAIL = "jbuoapu@gmail.com";
 
 /* Shared so the form and the API agree on what a valid answer looks like. */
-export const BUILDING_TYPES = ["House", "Apartment", "Condo", "Townhouse", "Business", "Other"] as const;
+export const BUILDING_TYPES = ["House", "Apartment", "Townhouse", "Commercial", "Other"] as const;
+/* Picking this one reveals the unit-number field. */
+export const NEEDS_UNIT = "Apartment";
 export const STAIRS_OPTIONS = ["No stairs", "1 flight", "2+ flights", "Elevator"] as const;
 
 export type Customer = { id: string; name: string; phone: string };
@@ -29,9 +31,11 @@ export type Job = {
   serviceType: "junk" | "move";
   item: string;
   pickup: string;
+  pickupUnit: string | null;
   pickupBuilding: string | null;
   pickupStairs: string | null;
   dropoff: string | null;
+  dropoffUnit: string | null;
   dropoffBuilding: string | null;
   dropoffStairs: string | null;
   fragile: boolean | null;

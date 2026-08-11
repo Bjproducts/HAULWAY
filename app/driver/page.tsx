@@ -226,7 +226,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
           <i>A</i>
           <span>
             <small>PICKUP</small>
-            <strong>{job.pickup}</strong>
+            <strong>{withUnit(job.pickup, job.pickupUnit)}</strong>
             <b>{siteSummary(job.pickupBuilding, job.pickupStairs)}</b>
           </span>
         </div>
@@ -234,7 +234,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
           <i>B</i>
           <span>
             <small>DROP-OFF</small>
-            <strong>{job.dropoff}</strong>
+            <strong>{withUnit(job.dropoff ?? "", job.dropoffUnit)}</strong>
             <b>{siteSummary(job.dropoffBuilding, job.dropoffStairs)}</b>
           </span>
         </div>}
@@ -298,5 +298,8 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 function siteSummary(building: string | null, stairs: string | null) {
   const parts = [building, stairs].filter(Boolean);
   return parts.length ? parts.join(" · ") : "Building details not given";
+}
+function withUnit(address: string, unit: string | null) {
+  return unit ? `Unit ${unit} — ${address}` : address;
 }
 function statusLabel(status: string) { return ({ requested: "Needs approval", approved: "Needs quote", quoted: "Quote sent", accepted: "Booked", in_progress: "In progress", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status; }
