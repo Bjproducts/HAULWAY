@@ -54,6 +54,8 @@ export type Job = {
   operatorConfirmed: boolean;
   createdAt: string;
   updatedAt: string;
+  /* Only present on the list endpoint — powers the "new activity" dot. */
+  messageCount?: number;
 };
 
 export type JobDetails = Job & { media: JobMedia[]; messages: Message[] };

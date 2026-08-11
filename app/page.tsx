@@ -28,6 +28,10 @@ export default function CustomerApp() {
   const [service, setService] = useState<Service>("junk");
   const [notice, setNotice] = useState("");
   const [found, setFound] = useState<Job | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
+  /* Lazy initialiser: readSeen guards its own storage access, so it safely returns
+     {} during SSR and the real map on the client. */
+  const [seen, setSeen] = useState<Record<string, number>>(readSeen);
 
   /* Remembers which hauls were still unclaimed, so the next poll can spot the
      moment a driver takes one and surface it. */
@@ -51,9 +55,13 @@ export default function CustomerApp() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([fetch("/api/auth/me", { cache: "no-store" }).then(readJson), wait(1500)])
+    /* The splash is a first-impression, not a toll booth — returning visitors in the
+       same session skip straight past it. */
+    const returning = sessionStorage.getItem("hw_splash") === "1";
+    Promise.all([fetch("/api/auth/me", { cache: "no-store" }).then(readJson), wait(returning ? 0 : 1500)])
       .then(([data]) => {
         if (!active) return;
+        sessionStorage.setItem("hw_splash", "1");
         const next = (data as { customer: Customer | null }).customer;
         setCustomer(next);
         setScreen(next ? "app" : "auth");
@@ -62,6 +70,21 @@ export default function CustomerApp() {
       .catch(() => active && setScreen("auth"));
     return () => { active = false; };
   }, [refreshJobs]);
+
+  /* Android back / browser back should step back through the app, not leave it. */
+  const nav = useRef({ screen, tab, openJobId });
+  nav.current = { screen, tab, openJobId };
+  useEffect(() => {
+    function onPop() {
+      const { screen: s, tab: t, openJobId: j } = nav.current;
+      if (s === "request" || s === "sent") { setScreen("app"); return; }
+      if (j) { setOpenJobId(null); return; }
+      if (t !== "home") { setTab("home"); return; }
+      history.back();
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   useEffect(() => {
     if (screen !== "app") return;
@@ -76,6 +99,7 @@ export default function CustomerApp() {
   }, [found]);
 
   async function signOut() {
+    setAccountOpen(false);
     await fetch("/api/auth/logout", { method: "POST" });
     setCustomer(null); setJobs([]); setOpenJobId(null);
     setTab("home"); setScreen("auth");
@@ -85,6 +109,27 @@ export default function CustomerApp() {
     setTab(next); setNotice("");
     if (next !== "requests") setOpenJobId(null);
   }
+
+  /* Every push is matched by a history entry, so in-app back and hardware back
+     stay in step — the back buttons just call history.back(). */
+  function goDeeper() { history.pushState({ hw: true }, ""); }
+
+  function openJob(id: string) {
+    const job = jobs.find((entry) => entry.id === id);
+    if (job) markSeen(id, job.messageCount ?? 0);
+    setOpenJobId(id);
+    goDeeper();
+  }
+
+  function markSeen(id: string, count: number) {
+    setSeen((previous) => {
+      const next = { ...previous, [id]: count };
+      writeSeen(next);
+      return next;
+    });
+  }
+
+  const unread = (job: Job) => (job.messageCount ?? 0) > (seen[job.id] ?? 0);
 
   if (screen === "boot") return <Splash />;
   if (screen === "auth") return <Registration onRegistered={(next) => { setCustomer(next); setScreen("app"); void refreshJobs(); }} />;
@@ -107,21 +152,32 @@ export default function CustomerApp() {
     <div className="app-shell">
       <header className="app-bar">
         <button className="app-bar-logo" onClick={() => goTab("home")} aria-label="Haulway home"><Logo /></button>
-        <button className="app-avatar" onClick={() => void signOut()} title="Sign out">{initials(customer.name)}</button>
+        <span className="head-menu">
+          <button className="app-avatar" onClick={() => setAccountOpen((value) => !value)} aria-label="Your account" aria-expanded={accountOpen}>{initials(customer.name)}</button>
+          {accountOpen && <>
+            <button className="menu-scrim" aria-label="Close menu" onClick={() => setAccountOpen(false)} />
+            <span className="menu-pop account">
+              <span className="menu-who"><strong>{customer.name}</strong><small>{customer.phone}</small></span>
+              <button onClick={() => void signOut()}>Sign out</button>
+            </span>
+          </>}
+        </span>
       </header>
 
-      {found && <button className="found-toast" onClick={() => { setFound(null); setTab("requests"); setOpenJobId(found.id); }}>
+      <p className="sr-live" role="status" aria-live="polite">{found ? `A driver took your ${found.item} haul.` : ""}</p>
+
+      {found && <button className="found-toast" onClick={() => { setFound(null); setTab("requests"); openJob(found.id); }}>
         <span className="found-toast-icon" aria-hidden="true">🚚</span>
         <span><strong>A driver took your haul</strong><small>{found.item} — tap to track it</small></span>
         <i aria-hidden="true">→</i>
       </button>}
 
       <main className="app-body">
-        {tab === "home" && <HomeTab customer={customer} activeCount={jobs.filter((job) => job.status !== "completed").length} openRequests={openRequests} onPick={(picked) => { setService(picked); setScreen("request"); }} />}
+        {tab === "home" && <HomeTab customer={customer} activeCount={jobs.filter((job) => job.status !== "completed").length} openRequests={openRequests} onPick={(picked) => { setService(picked); setScreen("request"); goDeeper(); }} />}
         {/* Opening a request shows either "waiting to be approved" or its chat. */}
         {tab === "requests" && (openJobId
-          ? <RequestView jobId={openJobId} onBack={() => { setOpenJobId(null); setNotice(""); void refreshJobs(); }} onChanged={refreshJobs} />
-          : <RequestsTab jobs={jobs} notice={notice} onOpen={setOpenJobId} onNew={() => goTab("home")} />)}
+          ? <RequestView jobId={openJobId} onBack={() => history.back()} onChanged={refreshJobs} onSeen={markSeen} />
+          : <RequestsTab jobs={jobs} notice={notice} unread={unread} onOpen={openJob} onNew={() => goTab("home")} />)}
       </main>
 
       <nav className="tab-bar">
@@ -202,7 +258,7 @@ function HomeTab({ customer, activeCount, openRequests, onPick }: { customer: Cu
 
 /* ---------- Requests ---------- */
 
-function RequestsTab({ jobs, notice, onOpen, onNew }: { jobs: Job[]; notice: string; onOpen: (id: string) => void; onNew: () => void }) {
+function RequestsTab({ jobs, notice, unread, onOpen, onNew }: { jobs: Job[]; notice: string; unread: (job: Job) => boolean; onOpen: (id: string) => void; onNew: () => void }) {
   const current = jobs.filter((job) => job.status !== "completed");
   const past = jobs.filter((job) => job.status === "completed");
   return <section className="sub-page">
@@ -212,29 +268,32 @@ function RequestsTab({ jobs, notice, onOpen, onNew }: { jobs: Job[]; notice: str
       {!jobs.length && <div className="empty-state"><span>▤</span><strong>No requests yet.</strong><small>Start one from Home and it will show up here.</small><button className="hw-primary" onClick={onNew}>Book a haul →</button></div>}
       {current.length > 0 && <>
         <p className="list-label">Current</p>
-        {current.map((job) => <JobRow key={job.id} job={job} onOpen={onOpen} />)}
+        {current.map((job) => <JobRow key={job.id} job={job} unread={unread(job)} onOpen={onOpen} />)}
       </>}
       {past.length > 0 && <>
         <p className="list-label">Completed</p>
-        {past.map((job) => <JobRow key={job.id} job={job} onOpen={onOpen} />)}
+        {past.map((job) => <JobRow key={job.id} job={job} unread={unread(job)} onOpen={onOpen} />)}
       </>}
     </div>
   </section>;
 }
 
-function JobRow({ job, onOpen }: { job: Job; onOpen: (id: string) => void }) {
-  return <button className="job-row" onClick={() => onOpen(job.id)}>
-    <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+function JobRow({ job, unread, onOpen }: { job: Job; unread: boolean; onOpen: (id: string) => void }) {
+  return <button className={`job-row ${unread ? "unread" : ""}`} onClick={() => onOpen(job.id)}>
+    <span className="job-row-top">
+      <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+      {unread && <span className="new-dot">New</span>}
+    </span>
     <strong>{job.item}</strong>
     <small>{shortDate(job.scheduledDate)} · {job.scheduledTime}</small>
-    <b>{job.quoteCents ? money(job.quoteCents) : job.status === "requested" ? "Not approved yet" : "Quote coming"}</b>
+    <b>{job.quoteCents ? money(job.quoteCents) : job.status === "requested" ? "Waiting on a driver" : "Quote coming"}</b>
     <i aria-hidden="true">→</i>
   </button>;
 }
 
 /* ---------- One request: waiting for approval, then chat ---------- */
 
-function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () => void; onChanged: () => Promise<Job[]> }) {
+function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBack: () => void; onChanged: () => Promise<Job[]>; onSeen: (id: string, count: number) => void }) {
   const [job, setJob] = useState<JobDetails | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -258,6 +317,11 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   }, [jobId]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [job?.messages.length]);
+
+  /* Reading the thread clears its "new" dot, including messages that land while open. */
+  const seenRef = useRef(onSeen);
+  useEffect(() => { seenRef.current = onSeen; }, [onSeen]);
+  useEffect(() => { if (job) seenRef.current(jobId, job.messages.length); }, [jobId, job]);
 
   async function action(actionName: string, extra: Record<string, unknown> = {}) {
     setBusy(true); setError("");
@@ -368,7 +432,7 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         <div><small>YOUR QUOTE</small><strong>{money(job.quoteCents)}</strong></div>
         <div className="chat-action-row">
           <button className="decline-button" disabled={busy} onClick={() => void action("decline_quote")}>Decline</button>
-          <button className="hw-primary" disabled={busy} onClick={() => void action("accept_quote")}>Accept</button>
+          <button className="hw-primary" disabled={busy} onClick={() => void action("accept_quote")}>Accept {money(job.quoteCents)}</button>
         </div>
       </div>}
 
@@ -425,12 +489,13 @@ function TruckScene() {
   </div>;
 }
 
-function BookingLoader() {
-  return <main className="booking-loader">
+function BookingLoader({ done, total }: { done: number; total: number }) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return <main className="booking-loader" role="status" aria-live="polite">
     <TruckScene />
     <h2>Booking your haul…</h2>
-    <p>Uploading your photos and putting it in front of our drivers.</p>
-    <span className="booking-bar"><i /></span>
+    <p>{done < total ? `Uploading photo ${Math.min(done + 1, total)} of ${total}.` : "Putting it in front of our drivers."}</p>
+    <span className="booking-bar"><i style={{ width: `${done < total ? Math.max(pct, 6) : 100}%` }} /></span>
   </main>;
 }
 
@@ -507,6 +572,7 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
   const [time, setTime] = useState("10:00");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploaded, setUploaded] = useState(0);
   const title = service === "junk" ? "Junk removal" : "Small move";
   const steps = ["Photos", "Details", "Time"];
 
@@ -519,8 +585,19 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
   function removeFile(upload: Upload) { URL.revokeObjectURL(upload.url); setUploads((current) => current.filter((entry) => entry.id !== upload.id)); }
   function continuePhotos() { if (!uploads.some((entry) => entry.kind === "image")) return setError("Add at least one photo to continue."); setError(""); setStep(2); }
 
-  /* Pickup is the only field the customer must fill. A move still needs somewhere to go. */
-  const detailsReady = pickup.trim() && (service !== "move" || dropoff.trim());
+  /* Pickup is the only field the customer must fill. A move still needs somewhere to go.
+     The button stays live and explains itself rather than sitting dead and unexplained. */
+  function continueDetails() {
+    if (!pickup.trim()) return failField("Add the pickup address to continue.", "pickup-address");
+    if (service === "move" && !dropoff.trim()) return failField("Add the drop-off address to continue.", "dropoff-address");
+    setError(""); setStep(3);
+  }
+  function failField(message: string, id: string) {
+    setError(message);
+    const field = document.getElementById(id) as HTMLInputElement | null;
+    field?.focus();
+    field?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
   const summaryTitle = description.split("\n").map((line) => line.trim()).find(Boolean) || title;
 
   async function submit() {
@@ -551,6 +628,7 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
         if (!target) throw new Error("The upload plan is incomplete.");
         const { error: uploadError } = await storage.uploadToSignedUrl(target.path, target.token, file, { contentType: file.type, upsert: false });
         if (uploadError) throw uploadError;
+        setUploaded((count) => count + 1);
       }));
       const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failed) throw failed.reason;
@@ -564,7 +642,7 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
   }
 
   /* Takes over the screen while photos upload — the flow behind it is done with. */
-  if (busy) return <BookingLoader />;
+  if (busy) return <BookingLoader done={uploaded} total={uploads.length} />;
 
   return <div className="flow-shell">
     <header className="flow-bar">
@@ -597,8 +675,10 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
         <h2>Where is it?</h2>
         <p>Only the addresses are required — the rest helps us quote accurately.</p>
 
+        {error && <p className="step-error" role="alert">{error}</p>}
+
         <LocationBlock
-          title={service === "move" ? "Pickup" : "Pickup address"} index="A"
+          title={service === "move" ? "Pickup" : "Pickup address"} index="A" inputId="pickup-address"
           address={pickup} onAddress={setPickup} placeholder="Pickup address in Edmonton"
           unit={pickupUnit} onUnit={setPickupUnit}
           building={pickupBuilding} onBuilding={setPickupBuilding}
@@ -606,7 +686,7 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
         />
 
         {service === "move" && <LocationBlock
-          title="Drop-off" index="B"
+          title="Drop-off" index="B" inputId="dropoff-address"
           address={dropoff} onAddress={setDropoff} placeholder="Drop-off address"
           unit={dropoffUnit} onUnit={setDropoffUnit}
           building={dropoffBuilding} onBuilding={setDropoffBuilding}
@@ -655,21 +735,21 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
 
     <div className="flow-foot">
       {step === 1 && <button className="hw-primary wide" onClick={continuePhotos}>Continue<span>→</span></button>}
-      {step === 2 && <button className="hw-primary wide" disabled={!detailsReady} onClick={() => setStep(3)}>Continue<span>→</span></button>}
+      {step === 2 && <button className="hw-primary wide" onClick={continueDetails}>Continue<span aria-hidden="true">→</span></button>}
       {step === 3 && <button className="hw-primary wide" disabled={busy} onClick={submit}>Book my haul<span aria-hidden="true">→</span></button>}
     </div>
   </div>;
 }
 
-function LocationBlock({ title, index, address, onAddress, placeholder, unit, onUnit, building, onBuilding, stairs, onStairs }: {
-  title: string; index: string; address: string; onAddress: (value: string) => void; placeholder: string;
+function LocationBlock({ title, index, inputId, address, onAddress, placeholder, unit, onUnit, building, onBuilding, stairs, onStairs }: {
+  title: string; index: string; inputId: string; address: string; onAddress: (value: string) => void; placeholder: string;
   unit: string; onUnit: (value: string) => void;
   building: string; onBuilding: (value: string) => void; stairs: string; onStairs: (value: string) => void;
 }) {
   const needsUnit = building === NEEDS_UNIT;
   return <div className="loc-block">
     <div className="loc-head"><i aria-hidden="true">{index}</i><strong>{title}</strong><em>Required</em></div>
-    <input value={address} onChange={(event) => onAddress(event.target.value)} placeholder={placeholder} aria-label={`${title} address`} />
+    <input id={inputId} value={address} onChange={(event) => onAddress(event.target.value)} placeholder={placeholder} aria-label={`${title} address`} autoComplete="street-address" />
     <ChipGroup label="Type of building" options={BUILDING_TYPES} value={building} onChange={onBuilding} />
     {/* Revealed only for an apartment — the driver needs a door to knock on. */}
     <div className={`unit-slot ${needsUnit ? "open" : ""}`} aria-hidden={!needsUnit}>
@@ -701,6 +781,16 @@ async function readJson(response: Response) {
   return data;
 }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Something went wrong."; }
+
+/* How many messages the customer had already read per haul. Private-mode Safari
+   throws on storage access, so every touch is guarded. */
+const SEEN_KEY = "hw_seen_messages";
+function readSeen(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(SEEN_KEY) ?? "{}") as Record<string, number>; } catch { return {}; }
+}
+function writeSeen(value: Record<string, number>) {
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(value)); } catch { /* storage unavailable */ }
+}
 function wait(ms: number) { return new Promise((resolve) => window.setTimeout(resolve, ms)); }
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function localDate() { const date = new Date(); const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 10); }

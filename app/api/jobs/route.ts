@@ -29,7 +29,21 @@ export async function GET(request: Request) {
   throwDatabaseError(error);
   const rows = (data ?? []).map((job) => flattenJob(job as Parameters<typeof flattenJob>[0]));
   rows.sort((left, right) => Number(left.status === "completed") - Number(right.status === "completed"));
-  return Response.json({ jobs: rows.map(mapJob) });
+
+  /* Message counts ride along so the list can flag hauls with something new. */
+  const counts = new Map<string, number>();
+  if (rows.length) {
+    const { data: messages, error: messageError } = await getSupabase()
+      .from("messages")
+      .select("job_id")
+      .in("job_id", rows.map((job) => job.id));
+    throwDatabaseError(messageError);
+    for (const message of (messages ?? []) as Array<{ job_id: string }>) {
+      counts.set(message.job_id, (counts.get(message.job_id) ?? 0) + 1);
+    }
+  }
+
+  return Response.json({ jobs: rows.map((job) => ({ ...mapJob(job), messageCount: counts.get(job.id) ?? 0 })) });
 }
 
 export async function POST(request: Request) {
