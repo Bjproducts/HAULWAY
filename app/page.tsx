@@ -16,6 +16,7 @@ type InAppUpdate = { id: number; jobId: string; title: string; detail: string; i
 
 /* A customer can back out until they have accepted a quote — mirrors the API guard. */
 const CANCELLABLE = new Set(["requested", "approved", "quoted"]);
+const FINISHED = new Set(["completed", "cancelled"]);
 
 function Logo({ light = false }: { light?: boolean }) {
   return <span className={`hw-logo ${light ? "light" : ""}`}><span className="hw-mark">H</span><span>HAULWAY</span></span>;
@@ -222,10 +223,11 @@ export default function CustomerApp() {
       <main className="app-body">
         {tab === "home" && <HomeTab
           customer={customer}
-          activeCount={jobs.filter((job) => job.status !== "completed").length}
+          activeCount={jobs.filter((job) => !FINISHED.has(job.status)).length}
           openRequests={openRequests}
           draft={draft}
           onDiscardDraft={() => { clearDraft(); setDraft(null); }}
+          onRequests={() => goTab("requests")}
           onPick={(picked) => {
             /* Choosing a different service is a fresh start — the old draft goes. */
             if (draft && draft.service !== picked) { clearDraft(); setDraft(null); }
@@ -240,7 +242,7 @@ export default function CustomerApp() {
 
       <nav className="tab-bar">
         <TabButton icon="⌂" label="Home" active={tab === "home"} onClick={() => goTab("home")} />
-        <TabButton icon="▤" label="Requests" active={tab === "requests"} badge={jobs.filter((job) => job.status !== "completed").length} onClick={() => goTab("requests")} />
+        <TabButton icon="▤" label="Requests" active={tab === "requests"} badge={jobs.filter((job) => !FINISHED.has(job.status)).length} onClick={() => goTab("requests")} />
       </nav>
     </div>
   );
@@ -250,7 +252,7 @@ function UpdateToast({ update, onOpen, onDismiss }: { update: InAppUpdate; onOpe
   const dismiss = useRef(onDismiss);
   useEffect(() => { dismiss.current = onDismiss; }, [onDismiss]);
   useEffect(() => {
-    const timer = window.setTimeout(() => dismiss.current(update.id), 8000);
+    const timer = window.setTimeout(() => dismiss.current(update.id), 1000);
     return () => window.clearTimeout(timer);
   }, [update.id]);
 
@@ -272,7 +274,7 @@ function TabButton({ icon, label, active, badge = 0, onClick }: { icon: string; 
 
 /* ---------- Home ---------- */
 
-function HomeTab({ customer, activeCount, openRequests, draft, onDiscardDraft, onPick }: { customer: Customer; activeCount: number; openRequests: number; draft: Draft | null; onDiscardDraft: () => void; onPick: (service: Service) => void }) {
+function HomeTab({ customer, activeCount, openRequests, draft, onDiscardDraft, onRequests, onPick }: { customer: Customer; activeCount: number; openRequests: number; draft: Draft | null; onDiscardDraft: () => void; onRequests: () => void; onPick: (service: Service) => void }) {
   const atLimit = openRequests >= MAX_OPEN_REQUESTS;
   const [open, setOpen] = useState(false);
 
@@ -297,6 +299,12 @@ function HomeTab({ customer, activeCount, openRequests, draft, onDiscardDraft, o
           </>}
         </h1>
       </div>
+
+      {activeCount > 0 && <button className="live-haul-strip enter" style={{ animationDelay: ".46s" }} onClick={onRequests}>
+        <span className="live-haul-pulse" aria-hidden="true" />
+        <span><strong>{activeCount} active haul{activeCount > 1 ? "s" : ""}</strong><small>Live tracking and updates</small></span>
+        <i aria-hidden="true">→</i>
+      </button>}
 
       {draft && !atLimit && <div className="draft-strip enter" style={{ animationDelay: ".5s" }}>
         <button className="draft-resume" onClick={() => onPick(draft.service)}>
@@ -344,8 +352,8 @@ function HomeTab({ customer, activeCount, openRequests, draft, onDiscardDraft, o
 /* ---------- Requests ---------- */
 
 function RequestsTab({ jobs, notice, unread, onOpen, onNew }: { jobs: Job[]; notice: string; unread: (job: Job) => boolean; onOpen: (id: string) => void; onNew: () => void }) {
-  const current = jobs.filter((job) => job.status !== "completed");
-  const past = jobs.filter((job) => job.status === "completed");
+  const current = jobs.filter((job) => !FINISHED.has(job.status));
+  const past = jobs.filter((job) => FINISHED.has(job.status));
   return <section className="sub-page">
     <div className="sub-head"><div><span className="micro-label">YOUR HAULS</span><h2>Requests</h2></div><button className="ghost-button" onClick={onNew}>+ New</button></div>
     {notice && <p className="inline-notice">{notice}</p>}
@@ -371,9 +379,20 @@ function JobRow({ job, unread, onOpen }: { job: Job; unread: boolean; onOpen: (i
     </span>
     <strong>{job.item}</strong>
     <small>{shortDate(job.scheduledDate)} · {job.scheduledTime}</small>
+    <span className="job-row-location">{job.pickup}{job.dropoff ? ` → ${job.dropoff}` : ""}</span>
     <b>{job.quoteCents ? money(job.quoteCents) : job.status === "requested" ? "Waiting on a driver" : "Quote coming"}</b>
     <i aria-hidden="true">→</i>
   </button>;
+}
+
+function JobJourney({ status }: { status: string }) {
+  const stages = ["Requested", "Driver", "Quote", "Booked", "Done"];
+  const active = status === "requested" ? 0 : status === "approved" ? 1 : status === "quoted" ? 2 : status === "accepted" || status === "in_progress" ? 3 : 4;
+  return <ol className="job-journey" aria-label={`Haul progress: ${stages[active]}`}>
+    {stages.map((stage, index) => <li key={stage} className={index < active ? "done" : index === active ? "active" : ""}>
+      <i aria-hidden="true">{index < active ? "✓" : index + 1}</i><span>{stage}</span>
+    </li>)}
+  </ol>;
 }
 
 /* ---------- One request: waiting for approval, then chat ---------- */
@@ -462,9 +481,11 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
     <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button><span className="status-pill requested">{statusLabel(job.status)}</span></div>
     <div className="waiting-body">
       <span className="radar" aria-hidden="true"><i /><i /><i /><b>🚚</b></span>
+      <JobJourney status={job.status} />
       <h2>Looking for a driver</h2>
       <p>We&apos;re finding a Haulway driver for this haul. You&apos;ll get a notification the moment one takes it.</p>
       <span className="waiting-meta">{job.item} · {shortDate(job.scheduledDate)} · {displayTime(job.scheduledTime)}</span>
+      <span className="waiting-assurance"><i aria-hidden="true" />You can leave this screen—we&apos;ll bring you back.</span>
     </div>
     {error && <p className="chat-error">{error}</p>}
     <div className="waiting-foot"><button className="cancel-button" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel request</button></div>
@@ -476,10 +497,12 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
     <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button><span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span></div>
     <div className="track-body">
       <TruckScene />
+      <JobJourney status={job.status} />
       <h2>A driver took your haul</h2>
       <div className="eta-block">
         <small>ESTIMATED ARRIVAL</small>
         <strong>{job.eta ?? "Setting an ETA…"}</strong>
+        <span><i aria-hidden="true" />Live updates</span>
       </div>
       <p>{job.status === "quoted" ? "Your quote is ready in chat. Your driver will keep the timing updated here." : job.status === "in_progress" ? "Your driver is on the way. Message them any time about access or timing." : job.status === "accepted" ? "Your haul is booked. Message your driver any time about access or timing." : "They'll send your quote in the chat. Message them any time about access or timing."}</p>
     </div>
@@ -600,6 +623,7 @@ function RequestSent({ onDone }: { onDone: () => void }) {
     <span className="radar big" aria-hidden="true"><i /><i /><i /><b>🚚</b></span>
     <h1>Looking for a driver</h1>
     <p>Your haul is booked and out to our drivers. We&apos;ll notify you the moment one takes it.</p>
+    <span className="sent-next"><i aria-hidden="true">01</i><span><strong>Next: a driver accepts</strong><small>We&apos;ll open live ETA tracking automatically.</small></span></span>
     <button className="hw-primary wide" onClick={() => done.current()}>View my requests<span aria-hidden="true">→</span></button>
   </main>;
 }
@@ -631,6 +655,7 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
       <span className="micro-label">WELCOME</span>
       <h1>Clear space.<br /><em>Keep moving.</em></h1>
       <p>Name and number. That&apos;s it.</p>
+      <div className="auth-trust" aria-label="Registration benefits"><span>✓ No password</span><span>✓ Fast booking</span></div>
       <label>Your name<input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your full name" /></label>
       <label>Mobile number<span className="phone-field"><span>+1</span><input autoComplete="tel" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(780) 555-0148" /></span></label>
       {error && <p className="field-error" role="alert">{error}</p>}
@@ -842,6 +867,7 @@ function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service
     </div>
 
     <div className="flow-foot">
+      <span className="flow-save"><i aria-hidden="true">✓</i>{step < 3 ? "Progress saves automatically" : "Quote first · no charge today"}</span>
       {step === 1 && <button className="hw-primary wide" onClick={continuePhotos}>Continue<span>→</span></button>}
       {step === 2 && <button className="hw-primary wide" onClick={continueDetails}>Continue<span aria-hidden="true">→</span></button>}
       {step === 3 && <button className="hw-primary wide" disabled={busy} onClick={submit}>Book my haul<span aria-hidden="true">→</span></button>}

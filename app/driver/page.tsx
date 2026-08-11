@@ -5,6 +5,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Job, JobDetails } from "@/lib/contracts";
 import { INTERAC_EMAIL, money, shortDate } from "@/lib/contracts";
+import { Composer, MessageList, useStickyScroll } from "../chat-ui";
 
 type Gate = "boot" | "setup" | "login" | "dashboard";
 type Filter = "new" | "active" | "done";
@@ -108,6 +109,7 @@ export default function DriverPortal() {
           {entry.label}<i>{counts[entry.id]}</i>
         </button>)}
       </div>
+      <span className="op-refresh-note"><i aria-hidden="true" />Live queue · refreshes automatically</span>
       {error && <p className="op-error">{error}<button onClick={() => setError("")} aria-label="Dismiss">×</button></p>}
     </div>
 
@@ -169,6 +171,7 @@ function OperatorGate({ mode, error, onError, onSuccess }: { mode: "setup" | "lo
       </label>}
       {error && <p className="field-error" role="alert">{error}</p>}
       <button className="hw-primary wide" disabled={busy}>{busy ? "Please wait…" : mode === "setup" ? "Create operator account" : "Sign in"}<span aria-hidden="true">→</span></button>
+      <span className="op-gate-trust">Private access · session protected</span>
       {mode === "setup" && <small>Do this before sharing the customer website.</small>}
     </form>
   </main>;
@@ -186,7 +189,8 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const endRef = useRef<HTMLDivElement>(null);
+  const [pending, setPending] = useState<string[]>([]);
+  const { ref: chatScrollRef, pinned: chatPinned, jump: jumpToLatest } = useStickyScroll((job?.messages.length ?? 0) + pending.length);
   const quoteTouched = useRef(false);
 
   useEffect(() => {
@@ -205,8 +209,6 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
     return () => { active = false; window.clearInterval(timer); };
   }, [jobId]);
 
-  useEffect(() => { if (pane === "chat") endRef.current?.scrollIntoView({ block: "end" }); }, [job?.messages.length, pane]);
-
   async function action(actionName: string, extra: Record<string, unknown> = {}) {
     setBusy(true); setError("");
     try {
@@ -219,12 +221,17 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
 
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (!message.trim()) return;
-    setBusy(true); setError("");
+    const body = message.trim();
+    if (!body) return;
+    setMessage(""); setError("");
+    setPending((queue) => [...queue, body]);
     try {
-      const data = await operatorFetch(`/api/jobs/${jobId}/messages`, { method: "POST", body: JSON.stringify({ body: message }) }) as { job: JobDetails };
-      setJob(data.job); setMessage("");
-    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+      const data = await operatorFetch(`/api/jobs/${jobId}/messages`, { method: "POST", body: JSON.stringify({ body }) }) as { job: JobDetails };
+      setJob(data.job);
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setMessage((current) => current || body);
+    } finally { setPending((queue) => queue.slice(1)); }
   }
 
   if (!job) return <div className="op-shell">
@@ -248,6 +255,10 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
 
     {pane === "job" ? <main className="op-detail">
       <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+      <div className="op-job-snapshot">
+        <span><small>SCHEDULED</small><strong>{shortDate(job.scheduledDate)} · {job.scheduledTime}</strong></span>
+        <span><small>CURRENT VALUE</small><strong>{job.quoteCents ? money(job.quoteCents) : job.eta ?? "Awaiting quote"}</strong></span>
+      </div>
 
       {media.length > 0 && <div className="op-media">{media.map((entry) => entry.contentType.startsWith("video/")
         ? <video key={entry.id} src={entry.operatorUrl} controls playsInline />
@@ -288,23 +299,18 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         {job.paymentMethod && job.paymentStatus !== "paid" && <button disabled={busy} onClick={() => void action("mark_paid")}>Mark paid</button>}
       </div>}
     </main> : <main className="op-chat">
-      <div className="chat-scroll">
-        {job.messages.length === 0 && <p className="chat-hint">Message {job.customer.name} about timing, access, or the quote.</p>}
-        {job.messages.map((entry) => <div key={entry.id} className={`chat-message ${entry.sender}`}>
-          <small>{entry.sender === "operator" ? "You" : entry.sender === "customer" ? job.customer.name : "Update"}</small>
-          <p>{entry.body}</p>
-        </div>)}
-        <div ref={endRef} />
+      <div className="chat-scroll" ref={chatScrollRef} role="log" aria-live="polite" aria-label={`Conversation with ${job.customer.name}`}>
+        {!job.messages.length && !pending.length && <p className="chat-hint">Message {job.customer.name} about timing, access, or the quote.</p>}
+        <MessageList messages={job.messages} mine="operator" nameFor={(sender) => sender === "operator" ? "You" : job.customer.name} pending={pending} />
       </div>
-      <form className="chat-composer" onSubmit={send}>
-        <input aria-label="Message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder={`Message ${job.customer.name.split(" ")[0]}…`} />
-        <button disabled={busy || !message.trim()} aria-label="Send">↑</button>
-      </form>
+      {!chatPinned && <button className="jump-latest" onClick={jumpToLatest}>Latest<span aria-hidden="true">↓</span></button>}
+      <Composer value={message} onChange={setMessage} onSend={send} busy={busy} placeholder={`Message ${job.customer.name.split(" ")[0]}…`} />
     </main>}
 
     {error && <p className="op-error inline">{error}<button onClick={() => setError("")} aria-label="Dismiss">×</button></p>}
 
     <div className="op-actions">
+      {job.status !== "completed" && job.status !== "cancelled" && <div className="op-action-context"><span>NEXT ACTION</span><small>Customer updates automatically</small></div>}
       {job.status === "requested" && <button className="op-accept" disabled={busy} onClick={() => void action("approve_request")}>Accept this request<span aria-hidden="true">→</span></button>}
 
       {job.status !== "requested" && job.status !== "completed" && job.status !== "cancelled" && <div className="op-eta">
