@@ -1,5 +1,6 @@
 import { getStorage, getSupabase, getSupabasePublicConfig, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
+import { BUILDING_TYPES, STAIRS_OPTIONS } from "@/lib/contracts";
 import { flattenJob, mapJob } from "@/lib/jobs";
 import { getErrorMessage, jsonError } from "@/lib/responses";
 
@@ -40,7 +41,12 @@ export async function POST(request: Request) {
     const body = await request.json() as {
       serviceType?: string;
       pickup?: string;
+      pickupBuilding?: string;
+      pickupStairs?: string;
       dropoff?: string;
+      dropoffBuilding?: string;
+      dropoffStairs?: string;
+      fragile?: boolean;
       description?: string;
       scheduledDate?: string;
       scheduledTime?: string;
@@ -50,6 +56,11 @@ export async function POST(request: Request) {
     const pickup = textField(body.pickup);
     const dropoff = textField(body.dropoff);
     const description = textField(body.description);
+    const pickupBuilding = oneOf(body.pickupBuilding, BUILDING_TYPES);
+    const pickupStairs = oneOf(body.pickupStairs, STAIRS_OPTIONS);
+    const dropoffBuilding = oneOf(body.dropoffBuilding, BUILDING_TYPES);
+    const dropoffStairs = oneOf(body.dropoffStairs, STAIRS_OPTIONS);
+    const fragile = typeof body.fragile === "boolean" ? body.fragile : null;
     const scheduledDate = textField(body.scheduledDate);
     const scheduledTime = normalizeTime(textField(body.scheduledTime));
     if (serviceType !== "junk" && serviceType !== "move") return jsonError("Choose a service.");
@@ -85,7 +96,12 @@ export async function POST(request: Request) {
       service_type: serviceType,
       item,
       pickup,
+      pickup_building: pickupBuilding,
+      pickup_stairs: pickupStairs,
       dropoff: dropoff || null,
+      dropoff_building: serviceType === "move" ? dropoffBuilding : null,
+      dropoff_stairs: serviceType === "move" ? dropoffStairs : null,
+      fragile,
       notes,
       scheduled_date: scheduledDate,
       scheduled_time: scheduledTime,
@@ -119,6 +135,12 @@ export async function POST(request: Request) {
 
 function textField(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+/* These are optional, so anything unrecognised is stored as "not answered". */
+function oneOf(value: unknown, allowed: readonly string[]) {
+  const text = textField(value);
+  return allowed.includes(text) ? text : null;
 }
 
 function deriveItem(description: string, serviceType: "junk" | "move") {

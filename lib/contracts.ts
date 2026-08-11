@@ -1,6 +1,10 @@
 /* Where customers send an Interac e-Transfer once a job is confirmed complete. */
 export const INTERAC_EMAIL = "jbuoapu@gmail.com";
 
+/* Shared so the form and the API agree on what a valid answer looks like. */
+export const BUILDING_TYPES = ["House", "Apartment", "Condo", "Townhouse", "Business", "Other"] as const;
+export const STAIRS_OPTIONS = ["No stairs", "1 flight", "2+ flights", "Elevator"] as const;
+
 export type Customer = { id: string; name: string; phone: string };
 
 export type Message = {
@@ -25,7 +29,12 @@ export type Job = {
   serviceType: "junk" | "move";
   item: string;
   pickup: string;
+  pickupBuilding: string | null;
+  pickupStairs: string | null;
   dropoff: string | null;
+  dropoffBuilding: string | null;
+  dropoffStairs: string | null;
+  fragile: boolean | null;
   notes: string;
   scheduledDate: string;
   scheduledTime: string;

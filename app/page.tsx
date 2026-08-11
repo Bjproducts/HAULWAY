@@ -5,7 +5,7 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
-import { INTERAC_EMAIL, money, shortDate } from "@/lib/contracts";
+import { BUILDING_TYPES, INTERAC_EMAIL, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
 
 type Screen = "boot" | "auth" | "app" | "request" | "sent";
 type Tab = "home" | "requests";
@@ -408,7 +408,12 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
   const [step, setStep] = useState(1);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [pickup, setPickup] = useState("");
+  const [pickupBuilding, setPickupBuilding] = useState("");
+  const [pickupStairs, setPickupStairs] = useState("");
   const [dropoff, setDropoff] = useState("");
+  const [dropoffBuilding, setDropoffBuilding] = useState("");
+  const [dropoffStairs, setDropoffStairs] = useState("");
+  const [fragile, setFragile] = useState<boolean | null>(null);
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(localDate());
   const [time, setTime] = useState("10:00");
@@ -438,7 +443,8 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          serviceType: service, pickup, dropoff, description,
+          serviceType: service, pickup, dropoff, description, fragile,
+          pickupBuilding, pickupStairs, dropoffBuilding, dropoffStairs,
           scheduledDate: date, scheduledTime: time,
           media: uploads.map(({ file }) => ({ filename: file.name, contentType: file.type, sizeBytes: file.size })),
         }),
@@ -497,21 +503,36 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
 
       {step === 2 && <div className="flow-step">
         <h2>Where is it?</h2>
-        <p>Only the pickup address is required.</p>
+        <p>Only the addresses are required — the rest helps us quote accurately.</p>
+
+        <LocationBlock
+          title={service === "move" ? "Pickup" : "Pickup address"} index="A"
+          address={pickup} onAddress={setPickup} placeholder="Pickup address in Edmonton"
+          building={pickupBuilding} onBuilding={setPickupBuilding}
+          stairs={pickupStairs} onStairs={setPickupStairs}
+        />
+
+        {service === "move" && <LocationBlock
+          title="Drop-off" index="B"
+          address={dropoff} onAddress={setDropoff} placeholder="Drop-off address"
+          building={dropoffBuilding} onBuilding={setDropoffBuilding}
+          stairs={dropoffStairs} onStairs={setDropoffStairs}
+        />}
+
+        <div className="chip-group standalone">
+          <span className="chip-label">Is anything fragile?</span>
+          <div className="chips two">
+            <button type="button" className={`chip ${fragile === false ? "active" : ""}`} onClick={() => setFragile(fragile === false ? null : false)}>No</button>
+            <button type="button" className={`chip ${fragile === true ? "active" : ""}`} onClick={() => setFragile(fragile === true ? null : true)}>Yes — handle with care</button>
+          </div>
+        </div>
+
         <div className="compact-form">
           <label>
-            <span className="label-row">Pickup<em>Required</em></span>
-            <input value={pickup} onChange={(event) => setPickup(event.target.value)} placeholder="Pickup address in Edmonton" />
-          </label>
-          {service === "move" && <label>
-            <span className="label-row">Drop-off<em>Required</em></span>
-            <input value={dropoff} onChange={(event) => setDropoff(event.target.value)} placeholder="Drop-off address" />
-          </label>}
-          <label>
             <span className="label-row">Description &amp; additional info<em className="opt">Optional</em></span>
-            <textarea rows={5} value={description} onChange={(event) => setDescription(event.target.value)} placeholder={service === "junk"
-              ? "Couch, boxes, yard waste… plus stairs, parking, or anything heavy we should know about."
-              : "Bed and dresser… plus stairs, elevator, parking, or anything heavy."} />
+            <textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} placeholder={service === "junk"
+              ? "Couch, boxes, yard waste… plus parking or anything else we should know."
+              : "Bed and dresser… plus parking, elevator booking, or anything heavy."} />
           </label>
         </div>
       </div>}
@@ -538,6 +559,27 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
       {step === 1 && <button className="hw-primary wide" onClick={continuePhotos}>Continue<span>→</span></button>}
       {step === 2 && <button className="hw-primary wide" disabled={!detailsReady} onClick={() => setStep(3)}>Continue<span>→</span></button>}
       {step === 3 && <button className="hw-primary wide" disabled={busy} onClick={submit}>{busy ? "Uploading…" : "Send request"}<span>→</span></button>}
+    </div>
+  </div>;
+}
+
+function LocationBlock({ title, index, address, onAddress, placeholder, building, onBuilding, stairs, onStairs }: {
+  title: string; index: string; address: string; onAddress: (value: string) => void; placeholder: string;
+  building: string; onBuilding: (value: string) => void; stairs: string; onStairs: (value: string) => void;
+}) {
+  return <div className="loc-block">
+    <div className="loc-head"><i aria-hidden="true">{index}</i><strong>{title}</strong><em>Required</em></div>
+    <input value={address} onChange={(event) => onAddress(event.target.value)} placeholder={placeholder} aria-label={`${title} address`} />
+    <ChipGroup label="Type of building" options={BUILDING_TYPES} value={building} onChange={onBuilding} />
+    <ChipGroup label="Stairs" options={STAIRS_OPTIONS} value={stairs} onChange={onStairs} two />
+  </div>;
+}
+
+function ChipGroup({ label, options, value, onChange, two = false }: { label: string; options: readonly string[]; value: string; onChange: (value: string) => void; two?: boolean }) {
+  return <div className="chip-group">
+    <span className="chip-label">{label}</span>
+    <div className={`chips ${two ? "two" : ""}`} role="group" aria-label={label}>
+      {options.map((option) => <button key={option} type="button" aria-pressed={value === option} className={`chip ${value === option ? "active" : ""}`} onClick={() => onChange(value === option ? "" : option)}>{option}</button>)}
     </div>
   </div>;
 }

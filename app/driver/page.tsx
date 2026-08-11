@@ -222,12 +222,29 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         : <img key={entry.id} src={entry.operatorUrl} alt={entry.filename} />)}</div>}
 
       <div className="op-route">
-        <div><i>A</i><span><small>PICKUP</small><strong>{job.pickup}</strong></span></div>
-        {job.dropoff && <div><i>B</i><span><small>DROP-OFF</small><strong>{job.dropoff}</strong></span></div>}
+        <div>
+          <i>A</i>
+          <span>
+            <small>PICKUP</small>
+            <strong>{job.pickup}</strong>
+            <b>{siteSummary(job.pickupBuilding, job.pickupStairs)}</b>
+          </span>
+        </div>
+        {job.dropoff && <div>
+          <i>B</i>
+          <span>
+            <small>DROP-OFF</small>
+            <strong>{job.dropoff}</strong>
+            <b>{siteSummary(job.dropoffBuilding, job.dropoffStairs)}</b>
+          </span>
+        </div>}
       </div>
+
+      {job.fragile === true && <div className="op-fragile">⚠ Fragile — handle with care</div>}
 
       <dl className="op-facts">
         <div><dt>When</dt><dd>{shortDate(job.scheduledDate)} · {job.scheduledTime}</dd></div>
+        <div><dt>Fragile</dt><dd>{job.fragile === true ? "Yes — handle with care" : job.fragile === false ? "No" : "Not answered"}</dd></div>
         <div><dt>Customer</dt><dd><a href={`tel:${job.customer.phone}`}>{job.customer.phone}</a></dd></div>
         <div><dt>Notes</dt><dd>{job.notes || "No extra notes."}</dd></div>
       </dl>
@@ -278,4 +295,8 @@ async function operatorFetch(input: string, init: RequestInit = {}) {
 }
 async function readJson(response: Response) { const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error || "Something went wrong."); return data; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Something went wrong."; }
+function siteSummary(building: string | null, stairs: string | null) {
+  const parts = [building, stairs].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "Building details not given";
+}
 function statusLabel(status: string) { return ({ requested: "Needs approval", approved: "Needs quote", quoted: "Quote sent", accepted: "Booked", in_progress: "In progress", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status; }
