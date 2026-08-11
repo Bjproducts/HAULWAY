@@ -365,6 +365,21 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .found-toast small { color: rgba(255,255,255,.68); font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .found-toast i { margin-left: auto; font-style: normal; color: var(--lime); }
 
+/* ---------- saved draft ---------- */
+.draft-strip { display: flex; align-items: stretch; gap: var(--s1); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--e1); overflow: hidden; }
+.draft-resume { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border: 0; background: none; text-align: left; cursor: pointer; }
+.draft-icon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: var(--r-sm); background: var(--sunken); color: var(--forest); font-size: var(--t-md); }
+.draft-resume > span:not(.draft-icon) { display: grid; gap: 1px; min-width: 0; }
+.draft-resume strong { font-size: var(--t-md); font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-resume small { color: var(--ink-2); font-size: var(--t-xs); }
+.draft-resume i { margin-left: auto; font-style: normal; color: var(--orange-dk); }
+.draft-discard { width: 44px; flex: 0 0 auto; border: 0; border-left: 1px solid var(--line-soft); background: none; color: var(--ink-3); font-size: var(--t-xl); cursor: pointer; }
+.draft-discard:hover { background: var(--sunken); color: var(--ink); }
+
+.draft-note { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s4); padding: var(--s3) var(--s4); border-radius: var(--r-md); background: #e4f0e6; color: #245c3d; font-size: var(--t-sm); line-height: 1.4; animation: enter-up .3s var(--ease) both; }
+.draft-note > span:first-child { flex: 0 0 auto; font-weight: 900; }
+.draft-note button { margin-left: auto; flex: 0 0 auto; border: 0; background: none; color: inherit; font-size: var(--t-lg); cursor: pointer; }
+
 /* ---------- booking limit ---------- */
 .limit-card { display: grid; justify-items: center; gap: var(--s2); padding: var(--s6) var(--s5); border-radius: var(--r-xl); background: var(--surface); text-align: center; box-shadow: var(--e1); }
 .limit-icon { font-size: 34px; }
@@ -627,15 +642,20 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .op-error button { border: 0; background: none; color: inherit; font-size: var(--t-lg); cursor: pointer; }
 
 .op-list { padding: var(--s4) var(--s4) calc(env(safe-area-inset-bottom) + var(--s5)); display: flex; flex-direction: column; gap: var(--s3); }
-.op-card { border: 0; border-radius: var(--r-lg); background: var(--surface); padding: var(--s4); display: grid; gap: var(--s1); text-align: left; cursor: pointer; box-shadow: var(--e1); transition: transform .15s var(--ease), box-shadow .15s var(--ease); }
+.op-card { border-radius: var(--r-lg); background: var(--surface); overflow: hidden; box-shadow: var(--e1); transition: box-shadow .15s var(--ease); }
 .op-card:hover { box-shadow: var(--e2); }
-.op-card:active { transform: scale(.99); }
-.op-card .status-pill { justify-self: start; margin-bottom: var(--s1); }
-.op-card > strong { font-size: var(--t-lg); font-weight: 750; letter-spacing: -.025em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.op-card > small { color: var(--ink-2); font-size: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.op-card > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3); margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--line-soft); }
+.op-card-main { width: 100%; padding: var(--s4); border: 0; background: none; display: grid; gap: var(--s1); text-align: left; cursor: pointer; transition: background .15s var(--ease); }
+.op-card-main:active { background: var(--sunken); }
+.op-card-top { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s1); }
+.op-flag { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: var(--r-full); background: #fde8d6; color: #a9521d; font-size: var(--t-2xs); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.op-card-main > strong { font-size: var(--t-lg); font-weight: 750; letter-spacing: -.025em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-card-main > small { color: var(--ink-2); font-size: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-card-foot { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3); margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--line-soft); }
 .op-card b { color: var(--ink-2); font-size: var(--t-xs); font-weight: 700; }
 .op-card em { font-style: normal; font-size: var(--t-md); font-weight: 800; }
+.op-card-accept { width: 100%; min-height: 50px; border: 0; border-top: 1px solid var(--line-soft); background: var(--forest); color: #fff; display: flex; align-items: center; justify-content: center; gap: var(--s2); font-size: var(--t-sm); font-weight: 800; cursor: pointer; transition: background .15s var(--ease); }
+.op-card-accept:hover { background: var(--forest-hi); }
+.op-card-accept:active { background: var(--deep); }
 .op-empty { margin-top: var(--s3); border-radius: var(--r-xl); background: var(--surface); padding: var(--s8) var(--s6); display: grid; justify-items: center; gap: var(--s2); text-align: center; box-shadow: var(--e1); }
 .op-empty > span { width: 52px; height: 52px; display: grid; place-items: center; border-radius: var(--r-md); background: var(--sunken); color: var(--forest); font-size: var(--t-xl); }
 .op-empty strong { font-size: var(--t-lg); }

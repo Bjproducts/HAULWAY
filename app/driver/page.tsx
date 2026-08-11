@@ -25,6 +25,7 @@ export default function DriverPortal() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("new");
+  const [accepting, setAccepting] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const loadJobs = useCallback(async () => {
@@ -70,6 +71,19 @@ export default function DriverPortal() {
     setJobs([]); setOpenId(null); setGate("login");
   }
 
+  /* Accepting is the driver committing to the job, so land them on it — ETA and
+     quote are the very next things they need. */
+  async function acceptJob(id: string) {
+    setAccepting(id); setError("");
+    try {
+      await operatorFetch(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ action: "approve_request" }) });
+      await loadJobs();
+      setOpenId(id);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally { setAccepting(null); }
+  }
+
   if (gate === "boot") return <main className="op-boot"><OperatorLogo /><span className="op-loader"><i /></span></main>;
   if (gate === "setup" || gate === "login") return <OperatorGate mode={gate} error={error} onError={setError} onSuccess={() => { setError(""); setGate("dashboard"); }} />;
 
@@ -98,12 +112,24 @@ export default function DriverPortal() {
     </div>
 
     <main className="op-list">
-      {visible.length ? visible.map((job) => <button key={job.id} className="op-card" onClick={() => setOpenId(job.id)}>
-        <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
-        <strong>{job.item}</strong>
-        <small>{job.customer.name} · {job.pickup}</small>
-        <div><b>{shortDate(job.scheduledDate)} · {job.scheduledTime}</b><em>{job.quoteCents ? money(job.quoteCents) : "No quote"}</em></div>
-      </button>) : <div className="op-empty">
+      {visible.length ? visible.map((job) => <div key={job.id} className="op-card">
+        <button className="op-card-main" onClick={() => setOpenId(job.id)}>
+          <span className="op-card-top">
+            <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+            {job.fragile && <span className="op-flag">Fragile</span>}
+          </span>
+          <strong>{job.item}</strong>
+          <small>{job.customer.name} · {job.pickup}</small>
+          <span className="op-card-foot">
+            <b>{shortDate(job.scheduledDate)} · {job.scheduledTime}</b>
+            <em>{job.quoteCents ? money(job.quoteCents) : job.eta ? job.eta : "No quote"}</em>
+          </span>
+        </button>
+        {/* Taking a job from the list drops the driver straight into it. */}
+        {job.status === "requested" && <button className="op-card-accept" disabled={accepting === job.id} onClick={() => void acceptJob(job.id)}>
+          {accepting === job.id ? "Accepting…" : "Accept this request"}<span aria-hidden="true">→</span>
+        </button>}
+      </div>) : <div className="op-empty">
         <span>✓</span>
         <strong>Nothing {filter === "new" ? "new" : filter === "active" ? "active" : "here"}.</strong>
         <small>{filter === "new" ? "New customer requests land here automatically." : filter === "active" ? "Accepted jobs show up here." : "Completed and cancelled jobs collect here."}</small>
@@ -156,6 +182,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   const [quote, setQuote] = useState("");
   const [eta, setEta] = useState("");
   const etaTouched = useRef(false);
+  const etaInput = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -185,6 +212,8 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
     try {
       const data = await operatorFetch(`/api/jobs/${jobId}`, { method: "PATCH", body: JSON.stringify({ action: actionName, ...extra }) }) as { job: JobDetails };
       setJob(data.job); quoteTouched.current = false; etaTouched.current = false; await onChanged();
+      /* Just took the job — the ETA is the next thing the customer is waiting on. */
+      if (actionName === "approve_request") window.setTimeout(() => etaInput.current?.focus(), 60);
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
@@ -279,7 +308,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
       {job.status === "requested" && <button className="op-accept" disabled={busy} onClick={() => void action("approve_request")}>Accept this request<span aria-hidden="true">→</span></button>}
 
       {job.status !== "requested" && job.status !== "completed" && job.status !== "cancelled" && <div className="op-eta">
-        <label><span>ETA</span><input value={eta} onChange={(event) => { etaTouched.current = true; setEta(event.target.value); }} placeholder="e.g. 25 min, or 3:15 PM" maxLength={40} /></label>
+        <label><span>ETA</span><input ref={etaInput} value={eta} onChange={(event) => { etaTouched.current = true; setEta(event.target.value); }} placeholder="e.g. 25 min, or 3:15 PM" maxLength={40} /></label>
         <button disabled={busy || !eta.trim()} onClick={() => void action("set_eta", { eta })}>{job.eta ? "Update" : "Set"}</button>
       </div>}
 

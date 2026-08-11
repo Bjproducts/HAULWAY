@@ -29,6 +29,7 @@ export default function CustomerApp() {
   const [notice, setNotice] = useState("");
   const [found, setFound] = useState<Job | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [draft, setDraft] = useState<Draft | null>(readDraft);
   /* Lazy initialiser: readSeen guards its own storage access, so it safely returns
      {} during SSR and the real map on the client. */
   const [seen, setSeen] = useState<Record<string, number>>(readSeen);
@@ -77,7 +78,8 @@ export default function CustomerApp() {
   useEffect(() => {
     function onPop() {
       const { screen: s, tab: t, openJobId: j } = nav.current;
-      if (s === "request" || s === "sent") { setScreen("app"); return; }
+      /* Leaving the booking flow: pick up whatever it saved so Home can offer a resume. */
+      if (s === "request" || s === "sent") { setScreen("app"); setDraft(readDraft()); return; }
       if (j) { setOpenJobId(null); return; }
       if (t !== "home") { setTab("home"); return; }
       history.back();
@@ -134,10 +136,16 @@ export default function CustomerApp() {
   if (screen === "boot") return <Splash />;
   if (screen === "auth") return <Registration onRegistered={(next) => { setCustomer(next); setScreen("app"); void refreshJobs(); }} />;
   if (screen === "request" && customer) {
-    return <RequestFlow service={service} onCancel={() => setScreen("app")} onCreated={async () => {
-      setScreen("sent");
-      await refreshJobs();
-    }} />;
+    return <RequestFlow
+      service={service}
+      draft={draft && draft.service === service ? draft : null}
+      onCancel={() => history.back()}
+      onCreated={async () => {
+        clearDraft(); setDraft(null);
+        setScreen("sent");
+        await refreshJobs();
+      }}
+    />;
   }
   /* Straight to the requests list — the customer just filled this in, so there is no
      reason to show their own photos back to them. */
@@ -173,7 +181,18 @@ export default function CustomerApp() {
       </button>}
 
       <main className="app-body">
-        {tab === "home" && <HomeTab customer={customer} activeCount={jobs.filter((job) => job.status !== "completed").length} openRequests={openRequests} onPick={(picked) => { setService(picked); setScreen("request"); goDeeper(); }} />}
+        {tab === "home" && <HomeTab
+          customer={customer}
+          activeCount={jobs.filter((job) => job.status !== "completed").length}
+          openRequests={openRequests}
+          draft={draft}
+          onDiscardDraft={() => { clearDraft(); setDraft(null); }}
+          onPick={(picked) => {
+            /* Choosing a different service is a fresh start — the old draft goes. */
+            if (draft && draft.service !== picked) { clearDraft(); setDraft(null); }
+            setService(picked); setScreen("request"); goDeeper();
+          }}
+        />}
         {/* Opening a request shows either "waiting to be approved" or its chat. */}
         {tab === "requests" && (openJobId
           ? <RequestView jobId={openJobId} onBack={() => history.back()} onChanged={refreshJobs} onSeen={markSeen} />
@@ -196,7 +215,7 @@ function TabButton({ icon, label, active, badge = 0, onClick }: { icon: string; 
 
 /* ---------- Home ---------- */
 
-function HomeTab({ customer, activeCount, openRequests, onPick }: { customer: Customer; activeCount: number; openRequests: number; onPick: (service: Service) => void }) {
+function HomeTab({ customer, activeCount, openRequests, draft, onDiscardDraft, onPick }: { customer: Customer; activeCount: number; openRequests: number; draft: Draft | null; onDiscardDraft: () => void; onPick: (service: Service) => void }) {
   const atLimit = openRequests >= MAX_OPEN_REQUESTS;
   const [open, setOpen] = useState(false);
 
@@ -221,6 +240,15 @@ function HomeTab({ customer, activeCount, openRequests, onPick }: { customer: Cu
           </>}
         </h1>
       </div>
+
+      {draft && !atLimit && <div className="draft-strip enter" style={{ animationDelay: ".5s" }}>
+        <button className="draft-resume" onClick={() => onPick(draft.service)}>
+          <span className="draft-icon" aria-hidden="true">✎</span>
+          <span><strong>Finish your {draft.service === "junk" ? "junk removal" : "small move"}</strong><small>Your details are saved</small></span>
+          <i aria-hidden="true">→</i>
+        </button>
+        <button className="draft-discard" onClick={onDiscardDraft} aria-label="Discard saved draft">×</button>
+      </div>}
 
       {atLimit ? <div className="limit-card enter" style={{ animationDelay: ".5s" }}>
         <span className="limit-icon" aria-hidden="true">🚚</span>
@@ -554,27 +582,42 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
 
 /* ---------- Request flow ---------- */
 
-function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCancel: () => void; onCreated: () => void | Promise<void> }) {
+function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service; draft: Draft | null; onCancel: () => void; onCreated: () => void | Promise<void> }) {
+  /* Photos never survive, so a restored draft always resumes on step 1. */
   const [step, setStep] = useState(1);
+  const [restored, setRestored] = useState(Boolean(draft));
   const [uploads, setUploads] = useState<Upload[]>([]);
-  const [pickup, setPickup] = useState("");
-  const [pickupUnit, setPickupUnit] = useState("");
-  const [pickupBuilding, setPickupBuilding] = useState("");
-  const [pickupStairs, setPickupStairs] = useState("");
-  const [dropoff, setDropoff] = useState("");
-  const [dropoffUnit, setDropoffUnit] = useState("");
-  const [dropoffBuilding, setDropoffBuilding] = useState("");
-  const [dropoffStairs, setDropoffStairs] = useState("");
-  const [fragile, setFragile] = useState<boolean | null>(null);
-  const [description, setDescription] = useState("");
-  const [infoOpen, setInfoOpen] = useState(false);
-  const [date, setDate] = useState(localDate());
-  const [time, setTime] = useState("10:00");
+  const [pickup, setPickup] = useState(draft?.pickup ?? "");
+  const [pickupUnit, setPickupUnit] = useState(draft?.pickupUnit ?? "");
+  const [pickupBuilding, setPickupBuilding] = useState(draft?.pickupBuilding ?? "");
+  const [pickupStairs, setPickupStairs] = useState(draft?.pickupStairs ?? "");
+  const [dropoff, setDropoff] = useState(draft?.dropoff ?? "");
+  const [dropoffUnit, setDropoffUnit] = useState(draft?.dropoffUnit ?? "");
+  const [dropoffBuilding, setDropoffBuilding] = useState(draft?.dropoffBuilding ?? "");
+  const [dropoffStairs, setDropoffStairs] = useState(draft?.dropoffStairs ?? "");
+  const [fragile, setFragile] = useState<boolean | null>(draft?.fragile ?? null);
+  const [description, setDescription] = useState(draft?.description ?? "");
+  const [infoOpen, setInfoOpen] = useState(Boolean(draft?.description));
+  const [date, setDate] = useState(draft?.date ?? localDate());
+  const [time, setTime] = useState(draft?.time ?? "10:00");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [uploaded, setUploaded] = useState(0);
   const title = service === "junk" ? "Junk removal" : "Small move";
   const steps = ["Photos", "Details", "Time"];
+
+  /* Mirror the typed fields to storage as they change. Nothing is saved until the
+     customer has entered something worth keeping. The parent re-reads on exit, so
+     there is no need to push state upward on every keystroke. */
+  useEffect(() => {
+    const filled = [pickup, pickupUnit, pickupBuilding, pickupStairs, dropoff, dropoffUnit, dropoffBuilding, dropoffStairs, description].some(Boolean) || fragile !== null;
+    if (!filled) return;
+    writeDraft({
+      service, pickup, pickupUnit, pickupBuilding, pickupStairs,
+      dropoff, dropoffUnit, dropoffBuilding, dropoffStairs,
+      fragile, description, date, time, savedAt: Date.now(),
+    });
+  }, [service, pickup, pickupUnit, pickupBuilding, pickupStairs, dropoff, dropoffUnit, dropoffBuilding, dropoffStairs, fragile, description, date, time]);
 
   function addFiles(event: ChangeEvent<HTMLInputElement>) {
     const room = 8 - uploads.length;
@@ -656,6 +699,11 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
       {step === 1 && <div className="flow-step">
         <h2>Show us what&apos;s moving.</h2>
         <p>At least one photo. Video is welcome.</p>
+        {restored && <div className="draft-note">
+          <span aria-hidden="true">✓</span>
+          <span>We kept your details from last time — just add your photos again.</span>
+          <button onClick={() => setRestored(false)} aria-label="Dismiss">×</button>
+        </div>}
         <label className={`photo-dropzone ${error ? "error" : ""}`}>
           <input type="file" accept="image/*,video/*" multiple onChange={addFiles} />
           <span className="camera-mark">+</span><strong>Add photos or video</strong><small>Up to 8 files · 25 MB each</small>
@@ -781,6 +829,35 @@ async function readJson(response: Response) {
   return data;
 }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Something went wrong."; }
+
+/* A part-filled booking, kept so a reload or a backgrounded tab doesn't cost the
+   customer six fields of typing. Photos can't come along — File objects aren't
+   serialisable — so a restored draft always lands back on the photo step. */
+type Draft = {
+  service: Service;
+  pickup: string; pickupUnit: string; pickupBuilding: string; pickupStairs: string;
+  dropoff: string; dropoffUnit: string; dropoffBuilding: string; dropoffStairs: string;
+  fragile: boolean | null; description: string; date: string; time: string;
+  savedAt: number;
+};
+const DRAFT_KEY = "hw_draft";
+const DRAFT_TTL = 24 * 60 * 60 * 1000;
+
+function readDraft(): Draft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as Draft;
+    if (!draft?.savedAt || Date.now() - draft.savedAt > DRAFT_TTL) { localStorage.removeItem(DRAFT_KEY); return null; }
+    return draft;
+  } catch { return null; }
+}
+function writeDraft(draft: Draft) {
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* storage unavailable */ }
+}
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch { /* storage unavailable */ }
+}
 
 /* How many messages the customer had already read per haul. Private-mode Safari
    throws on storage access, so every touch is guarded. */
