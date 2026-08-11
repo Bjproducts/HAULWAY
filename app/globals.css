@@ -353,17 +353,18 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .eta-strip strong { font-size: var(--t-md); font-weight: 750; }
 .eta-strip i { margin-left: auto; font-style: normal; color: rgba(255,255,255,.65); }
 
-/* ---------- driver found toast ---------- */
-.found-toast { position: absolute; z-index: 50; left: var(--s4); right: var(--s4); top: calc(env(safe-area-inset-top) + 68px);
-  display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border: 0; border-radius: var(--r-lg);
-  background: var(--forest); color: #fff; text-align: left; cursor: pointer; box-shadow: var(--e3);
-  animation: toast-in .4s var(--ease) both; }
+/* ---------- in-app update notifications ---------- */
+.notification-stack { position: absolute; z-index: 50; left: var(--s4); right: var(--s4); top: calc(env(safe-area-inset-top) + 68px); display: grid; gap: var(--s2); pointer-events: none; }
+.update-toast { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: stretch; border-radius: var(--r-lg); background: var(--forest); color: #fff; box-shadow: var(--e3); overflow: hidden; pointer-events: auto; animation: toast-in .4s var(--ease) both; }
+.update-toast-open { min-width: 0; display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s2) var(--s3) var(--s4); border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
+.update-toast-open > span:not(.update-toast-icon) { display: grid; gap: 1px; min-width: 0; }
+.update-toast-open strong { font-size: var(--t-md); font-weight: 750; }
+.update-toast-open small { color: rgba(255,255,255,.72); font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.update-toast-open i { margin-left: auto; color: var(--lime); font-style: normal; }
+.update-toast-icon { width: 30px; flex: 0 0 30px; display: grid; place-items: center; color: var(--lime); font-size: var(--t-xl); font-weight: 900; }
+.update-toast-dismiss { width: 42px; border: 0; border-left: 1px solid rgba(255,255,255,.12); background: none; color: rgba(255,255,255,.7); font-size: var(--t-xl); cursor: pointer; }
+.update-toast-dismiss:hover { background: rgba(255,255,255,.08); color: #fff; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-14px); } }
-.found-toast-icon { font-size: var(--t-xl); animation: truck-bob .5s ease-in-out infinite alternate; }
-.found-toast span:not(.found-toast-icon) { display: grid; gap: 1px; min-width: 0; }
-.found-toast strong { font-size: var(--t-md); font-weight: 750; }
-.found-toast small { color: rgba(255,255,255,.68); font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.found-toast i { margin-left: auto; font-style: normal; color: var(--lime); }
 
 /* ---------- saved draft ---------- */
 .draft-strip { display: flex; align-items: stretch; gap: var(--s1); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--e1); overflow: hidden; }

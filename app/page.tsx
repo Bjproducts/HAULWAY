@@ -6,11 +6,13 @@ import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
 import { BUILDING_TYPES, INTERAC_EMAIL, MAX_OPEN_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
+import { Composer, MessageList, useStickyScroll } from "./chat-ui";
 
 type Screen = "boot" | "auth" | "app" | "request" | "sent";
 type Tab = "home" | "requests";
 type Service = "junk" | "move";
 type Upload = { id: string; file: File; url: string; kind: "image" | "video" };
+type InAppUpdate = { id: number; jobId: string; title: string; detail: string; icon: string };
 
 /* A customer can back out until they have accepted a quote — mirrors the API guard. */
 const CANCELLABLE = new Set(["requested", "approved", "quoted"]);
@@ -27,26 +29,57 @@ export default function CustomerApp() {
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [service, setService] = useState<Service>("junk");
   const [notice, setNotice] = useState("");
-  const [found, setFound] = useState<Job | null>(null);
+  const [updates, setUpdates] = useState<InAppUpdate[]>([]);
   const [accountOpen, setAccountOpen] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(readDraft);
   /* Lazy initialiser: readSeen guards its own storage access, so it safely returns
      {} during SSR and the real map on the client. */
   const [seen, setSeen] = useState<Record<string, number>>(readSeen);
 
-  /* Remembers which hauls were still unclaimed, so the next poll can spot the
-     moment a driver takes one and surface it. */
-  const waitingIds = useRef<Set<string> | null>(null);
+  /* A snapshot makes polling feel event-driven: only changes since the last
+     successful refresh become notifications, never the initial page load. */
+  const jobSnapshot = useRef<Map<string, Job> | null>(null);
+  const updateId = useRef(0);
+  const nav = useRef({ screen, tab, openJobId });
+  nav.current = { screen, tab, openJobId };
 
-  const refreshJobs = useCallback(async () => {
+  const refreshJobs = useCallback(async (silentJobId?: string) => {
     try {
       const data = await fetch("/api/jobs", { cache: "no-store" }).then(readJson) as { jobs: Job[] };
-      const previous = waitingIds.current;
+      const previous = jobSnapshot.current;
       if (previous) {
-        const claimed = data.jobs.find((job) => job.status === "approved" && previous.has(job.id));
-        if (claimed) setFound(claimed);
+        const changed = data.jobs.flatMap((job) => {
+          const before = previous.get(job.id);
+          /* Customer-initiated actions refresh the list too, but should not
+             announce the customer's own tap back as a new external update. */
+          const copy = before && job.id !== silentJobId ? describeJobUpdate(before, job) : null;
+          return copy ? [{ ...copy, id: ++updateId.current, jobId: job.id }] : [];
+        });
+        if (changed.length) setUpdates((current) => [...current, ...changed].slice(-3));
+
+        /* A fast driver may accept and quote between two polls, so any move out
+           of "requested" counts as accepted and opens the live tracking view. */
+        const claimed = data.jobs.find((job) => {
+          const before = previous.get(job.id);
+          return before?.status === "requested" && job.status !== "requested" && job.status !== "cancelled";
+        });
+        if (claimed) {
+          const currentView = nav.current;
+          const alreadyOpen = currentView.screen === "app" && currentView.tab === "requests" && currentView.openJobId === claimed.id;
+          setSeen((current) => {
+            const next = { ...current, [claimed.id]: claimed.messageCount ?? 0 };
+            writeSeen(next);
+            return next;
+          });
+          if (!alreadyOpen) {
+            setScreen("app");
+            setTab("requests");
+            setOpenJobId(claimed.id);
+            history.pushState({ hw: true }, "");
+          }
+        }
       }
-      waitingIds.current = new Set(data.jobs.filter((job) => job.status === "requested").map((job) => job.id));
+      jobSnapshot.current = new Map(data.jobs.map((job) => [job.id, job]));
       setJobs(data.jobs);
       return data.jobs;
     } catch {
@@ -73,8 +106,6 @@ export default function CustomerApp() {
   }, [refreshJobs]);
 
   /* Android back / browser back should step back through the app, not leave it. */
-  const nav = useRef({ screen, tab, openJobId });
-  nav.current = { screen, tab, openJobId };
   useEffect(() => {
     function onPop() {
       const { screen: s, tab: t, openJobId: j } = nav.current;
@@ -89,21 +120,18 @@ export default function CustomerApp() {
   }, []);
 
   useEffect(() => {
-    if (screen !== "app") return;
+    /* Keep listening while a signed-in customer is in the booking flow too. If
+       another haul is accepted, tracking takes priority and the draft remains saved. */
+    if (!customer) return;
     const timer = window.setInterval(() => void refreshJobs(), 5000);
     return () => window.clearInterval(timer);
-  }, [screen, refreshJobs]);
-
-  useEffect(() => {
-    if (!found) return;
-    const timer = window.setTimeout(() => setFound(null), 8000);
-    return () => window.clearTimeout(timer);
-  }, [found]);
+  }, [customer, refreshJobs]);
 
   async function signOut() {
     setAccountOpen(false);
     await fetch("/api/auth/logout", { method: "POST" });
     setCustomer(null); setJobs([]); setOpenJobId(null);
+    jobSnapshot.current = null; setUpdates([]);
     setTab("home"); setScreen("auth");
   }
 
@@ -122,6 +150,21 @@ export default function CustomerApp() {
     setOpenJobId(id);
     goDeeper();
   }
+
+  function openUpdate(update: InAppUpdate) {
+    setUpdates((current) => current.filter((entry) => entry.id !== update.id));
+    setScreen("app"); setTab("requests");
+    const job = jobs.find((entry) => entry.id === update.jobId);
+    if (job) markSeen(job.id, job.messageCount ?? 0);
+    if (nav.current.openJobId !== update.jobId) {
+      setOpenJobId(update.jobId);
+      goDeeper();
+    }
+  }
+
+  const dismissUpdate = useCallback((id: number) => {
+    setUpdates((current) => current.filter((entry) => entry.id !== id));
+  }, []);
 
   function markSeen(id: string, count: number) {
     setSeen((previous) => {
@@ -172,13 +215,9 @@ export default function CustomerApp() {
         </span>
       </header>
 
-      <p className="sr-live" role="status" aria-live="polite">{found ? `A driver took your ${found.item} haul.` : ""}</p>
-
-      {found && <button className="found-toast" onClick={() => { setFound(null); setTab("requests"); openJob(found.id); }}>
-        <span className="found-toast-icon" aria-hidden="true">🚚</span>
-        <span><strong>A driver took your haul</strong><small>{found.item} — tap to track it</small></span>
-        <i aria-hidden="true">→</i>
-      </button>}
+      <div className="notification-stack" aria-live="polite" aria-label="Request updates">
+        {updates.map((update) => <UpdateToast key={update.id} update={update} onOpen={openUpdate} onDismiss={dismissUpdate} />)}
+      </div>
 
       <main className="app-body">
         {tab === "home" && <HomeTab
@@ -195,7 +234,7 @@ export default function CustomerApp() {
         />}
         {/* Opening a request shows either "waiting to be approved" or its chat. */}
         {tab === "requests" && (openJobId
-          ? <RequestView jobId={openJobId} onBack={() => history.back()} onChanged={refreshJobs} onSeen={markSeen} />
+          ? <RequestView key={openJobId} jobId={openJobId} onBack={() => history.back()} onChanged={refreshJobs} onSeen={markSeen} />
           : <RequestsTab jobs={jobs} notice={notice} unread={unread} onOpen={openJob} onNew={() => goTab("home")} />)}
       </main>
 
@@ -205,6 +244,24 @@ export default function CustomerApp() {
       </nav>
     </div>
   );
+}
+
+function UpdateToast({ update, onOpen, onDismiss }: { update: InAppUpdate; onOpen: (update: InAppUpdate) => void; onDismiss: (id: number) => void }) {
+  const dismiss = useRef(onDismiss);
+  useEffect(() => { dismiss.current = onDismiss; }, [onDismiss]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => dismiss.current(update.id), 8000);
+    return () => window.clearTimeout(timer);
+  }, [update.id]);
+
+  return <article className="update-toast">
+    <button className="update-toast-open" onClick={() => onOpen(update)}>
+      <span className="update-toast-icon" aria-hidden="true">{update.icon}</span>
+      <span><strong>{update.title}</strong><small>{update.detail}</small></span>
+      <i aria-hidden="true">→</i>
+    </button>
+    <button className="update-toast-dismiss" onClick={() => onDismiss(update.id)} aria-label={`Dismiss ${update.title}`}>×</button>
+  </article>;
 }
 
 function TabButton({ icon, label, active, badge = 0, onClick }: { icon: string; label: string; active: boolean; badge?: number; onClick: () => void }) {
@@ -321,7 +378,7 @@ function JobRow({ job, unread, onOpen }: { job: Job; unread: boolean; onOpen: (i
 
 /* ---------- One request: waiting for approval, then chat ---------- */
 
-function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBack: () => void; onChanged: () => Promise<Job[]>; onSeen: (id: string, count: number) => void }) {
+function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBack: () => void; onChanged: (silentJobId?: string) => Promise<Job[]>; onSeen: (id: string, count: number) => void }) {
   const [job, setJob] = useState<JobDetails | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -329,7 +386,8 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showTracking, setShowTracking] = useState(true);
-  const endRef = useRef<HTMLDivElement>(null);
+  const [pending, setPending] = useState<string[]>([]);
+  const { ref: chatScrollRef, pinned: chatPinned, jump: jumpToLatest } = useStickyScroll((job?.messages.length ?? 0) + pending.length);
 
   useEffect(() => {
     let active = true;
@@ -344,8 +402,6 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
     return () => { active = false; window.clearInterval(timer); };
   }, [jobId]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [job?.messages.length]);
-
   /* Reading the thread clears its "new" dot, including messages that land while open. */
   const seenRef = useRef(onSeen);
   useEffect(() => { seenRef.current = onSeen; }, [onSeen]);
@@ -355,7 +411,7 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
     setBusy(true); setError("");
     try {
       const data = await fetch(`/api/jobs/${jobId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: actionName, ...extra }) }).then(readJson) as { job: JobDetails };
-      setJob(data.job); await onChanged();
+      setJob(data.job); await onChanged(jobId);
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
@@ -363,19 +419,29 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
     setBusy(true); setError("");
     try {
       await fetch(`/api/jobs/${jobId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel_request" }) }).then(readJson);
-      await onChanged();
+      await onChanged(jobId);
       onBack();
     } catch (caught) { setError(errorMessage(caught)); setBusy(false); }
   }
 
+  /* The bubble appears the moment you hit send; the network catches up behind it.
+     If the send fails the text comes back so nothing is silently lost. */
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (!message.trim()) return;
-    setBusy(true); setError("");
+    const body = message.trim();
+    if (!body) return;
+    setMessage(""); setError("");
+    setPending((queue) => [...queue, body]);
     try {
-      const data = await fetch(`/api/jobs/${jobId}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: message }) }).then(readJson) as { job: JobDetails };
-      setJob(data.job); setMessage("");
-    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+      const data = await fetch(`/api/jobs/${jobId}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body }) }).then(readJson) as { job: JobDetails };
+      setJob(data.job);
+      await onChanged(jobId);
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setMessage((current) => current || body);
+    } finally {
+      setPending((queue) => queue.slice(1));
+    }
   }
 
   if (!job) return <section className="sub-page">
@@ -406,8 +472,8 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
   </section>;
 
   /* A driver just took it — lead with the truck and the ETA, chat is one tap away. */
-  if (job.status === "approved" && showTracking) return <section className="track-page">
-    <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button><span className="status-pill approved">Driver found</span></div>
+  if (["approved", "quoted", "accepted", "in_progress"].includes(job.status) && showTracking) return <section className="track-page">
+    <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button><span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span></div>
     <div className="track-body">
       <TruckScene />
       <h2>A driver took your haul</h2>
@@ -415,12 +481,12 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
         <small>ESTIMATED ARRIVAL</small>
         <strong>{job.eta ?? "Setting an ETA…"}</strong>
       </div>
-      <p>They&apos;ll send your quote in the chat. Message them any time about access or timing.</p>
+      <p>{job.status === "quoted" ? "Your quote is ready in chat. Your driver will keep the timing updated here." : job.status === "in_progress" ? "Your driver is on the way. Message them any time about access or timing." : job.status === "accepted" ? "Your haul is booked. Message your driver any time about access or timing." : "They'll send your quote in the chat. Message them any time about access or timing."}</p>
     </div>
     {error && <p className="chat-error">{error}</p>}
     <div className="track-foot">
-      <button className="hw-primary wide" onClick={() => setShowTracking(false)}>Open chat<span aria-hidden="true">→</span></button>
-      <button className="cancel-button" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel request</button>
+      <button className="hw-primary wide" onClick={() => setShowTracking(false)}>{job.status === "quoted" ? "Review quote" : "Open chat"}<span aria-hidden="true">→</span></button>
+      {CANCELLABLE.has(job.status) && <button className="cancel-button" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel request</button>}
     </div>
     {cancelSheet}
   </section>;
@@ -446,14 +512,11 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
       <i aria-hidden="true">→</i>
     </button>}
 
-    <div className="chat-scroll">
-      {job.messages.length === 0 && <p className="chat-hint">A driver accepted your request. Your quote will arrive here.</p>}
-      {job.messages.map((entry) => <div key={entry.id} className={`chat-message ${entry.sender}`}>
-        <small>{entry.sender === "customer" ? "You" : entry.sender === "operator" ? "Haulway" : "Update"}</small>
-        <p>{entry.body}</p>
-      </div>)}
-      <div ref={endRef} />
+    <div className="chat-scroll" ref={chatScrollRef} role="log" aria-live="polite" aria-label="Conversation with Haulway">
+      {!job.messages.length && !pending.length && <p className="chat-hint">A driver took your haul. Your quote will arrive here — message them any time.</p>}
+      <MessageList messages={job.messages} mine="customer" nameFor={(sender) => sender === "customer" ? "You" : "Haulway"} pending={pending} />
     </div>
+    {!chatPinned && <button className="jump-latest" onClick={jumpToLatest}>Latest<span aria-hidden="true">↓</span></button>}
 
     <div className="chat-actions">
       {job.status === "quoted" && job.quoteCents != null && <div className="chat-action quote">
@@ -495,10 +558,7 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
     </div>
     {cancelSheet}
 
-    <form className="chat-composer" onSubmit={send}>
-      <input aria-label="Message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message Haulway…" />
-      <button disabled={busy || !message.trim()} aria-label="Send">↑</button>
-    </form>
+    <Composer value={message} onChange={setMessage} onSend={send} busy={false} placeholder="Message Haulway…" />
   </section>;
 }
 
@@ -822,6 +882,61 @@ function ChipGroup({ label, options, value, onChange, two = false }: { label: st
 }
 
 /* ---------- helpers ---------- */
+
+function describeJobUpdate(before: Job, after: Job): Omit<InAppUpdate, "id" | "jobId"> | null {
+  const accepted = before.status === "requested" && after.status !== "requested" && after.status !== "cancelled";
+  if (accepted) return {
+    title: "A driver accepted your haul",
+    detail: `${after.item} · ${after.eta ? `ETA ${after.eta}` : "Opening live tracking"}`,
+    icon: "🚚",
+  };
+
+  if (after.quoteCents != null && (before.quoteCents !== after.quoteCents || before.status !== after.status && after.status === "quoted")) return {
+    title: before.quoteCents == null ? "Your quote is ready" : "Your quote was updated",
+    detail: `${after.item} · ${money(after.quoteCents)}${after.eta ? ` · ETA ${after.eta}` : ""}`,
+    icon: "💬",
+  };
+
+  if (before.eta !== after.eta) return {
+    title: after.eta ? "Your ETA was updated" : "Your driver is updating the ETA",
+    detail: `${after.item}${after.eta ? ` · Arriving ${after.eta}` : " · Check back shortly"}`,
+    icon: "🕒",
+  };
+
+  if (!before.operatorConfirmed && after.operatorConfirmed) return {
+    title: "Your driver marked the haul complete",
+    detail: `${after.item} · Open the request to confirm`,
+    icon: "✓",
+  };
+
+  if (before.paymentStatus !== "paid" && after.paymentStatus === "paid") return {
+    title: "Payment received",
+    detail: `${after.item} · Thanks for choosing Haulway`,
+    icon: "✓",
+  };
+
+  if (before.status !== after.status) {
+    const statusCopy: Record<string, { title: string; detail: string; icon: string }> = {
+      approved: { title: "A driver accepted your haul", detail: "Open live tracking for the latest ETA", icon: "🚚" },
+      quoted: { title: "Your quote is ready", detail: "Open the request to review it", icon: "💬" },
+      accepted: { title: "Your haul is booked", detail: "Your driver will keep the ETA updated", icon: "✓" },
+      in_progress: { title: "Your driver is on the way", detail: after.eta ? `Arriving ${after.eta}` : "Open live tracking for updates", icon: "🚚" },
+      completed: { title: "Your haul is complete", detail: "Open the request for payment details", icon: "✓" },
+      cancelled: { title: "Your haul was cancelled", detail: "Open the request for details", icon: "!" },
+    };
+    const copy = statusCopy[after.status];
+    if (copy) return { ...copy, detail: `${after.item} · ${copy.detail}` };
+  }
+
+  const newMessages = (after.messageCount ?? 0) - (before.messageCount ?? 0);
+  if (newMessages > 0) return {
+    title: newMessages === 1 ? "New message from Haulway" : `${newMessages} new messages from Haulway`,
+    detail: `${after.item} · Tap to reply`,
+    icon: "💬",
+  };
+
+  return null;
+}
 
 async function readJson(response: Response) {
   const data = await response.json() as { error?: string };
