@@ -21,6 +21,7 @@ export type JobRow = {
   scheduled_date: string;
   scheduled_time: string;
   status: string;
+  eta: string | null;
   quote_cents: number | null;
   payment_method: "interac" | "cash" | null;
   payment_status: "unpaid" | "paid";
@@ -128,6 +129,7 @@ export function mapJob(job: JobRow) {
     scheduledDate: job.scheduled_date,
     scheduledTime: job.scheduled_time,
     status: job.status,
+    eta: job.eta,
     quoteCents: job.quote_cents,
     paymentMethod: job.payment_method,
     paymentStatus: job.payment_status,

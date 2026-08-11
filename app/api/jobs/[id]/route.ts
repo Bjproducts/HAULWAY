@@ -26,7 +26,7 @@ export async function PATCH(request: Request, context: Context) {
     const job = await getJobRow(id);
     if (!job) return jsonError("Job not found.", 404);
     if (!canAccessJob(session, job)) return jsonError("You cannot access this job.", 403);
-    const body = await request.json() as { action?: string; amount?: number; method?: string };
+    const body = await request.json() as { action?: string; amount?: number; method?: string; eta?: string };
     if (job.status === "cancelled") return jsonError("This request was cancelled.", 409);
 
     if (body.action === "approve_request") {
@@ -34,6 +34,13 @@ export async function PATCH(request: Request, context: Context) {
       if (job.status !== "requested") return jsonError("This request was already accepted.");
       await updateJob(id, { status: "approved" });
       await addSystemMessage(id, "Haulway accepted your request. Your quote will arrive in this chat.");
+    } else if (body.action === "set_eta") {
+      if (session.role !== "operator") return jsonError("Operator access required.", 403);
+      if (job.status === "requested") return jsonError("Accept the request before setting an ETA.");
+      const eta = (body.eta ?? "").trim().slice(0, 40);
+      if (!eta) return jsonError("Enter an ETA.");
+      await updateJob(id, { eta });
+      await addSystemMessage(id, `Driver ETA: ${eta}.`);
     } else if (body.action === "cancel_request") {
       if (session.role !== "customer") return jsonError("Customer access required.", 403);
       if (!CANCELLABLE.has(job.status)) return jsonError("This haul is already booked. Message Haulway in chat to change it.");

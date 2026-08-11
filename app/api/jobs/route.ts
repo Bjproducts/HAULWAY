@@ -1,6 +1,6 @@
 import { getStorage, getSupabase, getSupabasePublicConfig, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
-import { BUILDING_TYPES, NEEDS_UNIT, STAIRS_OPTIONS } from "@/lib/contracts";
+import { BUILDING_TYPES, MAX_OPEN_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS } from "@/lib/contracts";
 import { flattenJob, mapJob } from "@/lib/jobs";
 import { getErrorMessage, jsonError } from "@/lib/responses";
 
@@ -85,6 +85,18 @@ export async function POST(request: Request) {
     if (media.some((file) => !file.contentType.startsWith("image/") && !file.contentType.startsWith("video/"))) return jsonError("Only photos and videos are allowed.");
     if (media.some((file) => file.sizeBytes > MAX_FILE_BYTES)) return jsonError("Each file must be 25 MB or smaller.");
     if (media.reduce((total, file) => total + file.sizeBytes, 0) > MAX_TOTAL_BYTES) return jsonError("Uploads must total 60 MB or less.");
+
+    /* Cap how many hauls sit unclaimed per customer, so the board stays real. */
+    const { count: openCount, error: countError } = await getSupabase()
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("customer_id", session.subjectId)
+      .eq("upload_complete", true)
+      .eq("status", "requested");
+    throwDatabaseError(countError);
+    if ((openCount ?? 0) >= MAX_OPEN_REQUESTS) {
+      return jsonError(`You already have ${MAX_OPEN_REQUESTS} hauls waiting for a driver. Once one is picked up you can book another.`, 409);
+    }
 
     const jobId = crypto.randomUUID();
     const mediaRows: Array<{ id: string; key: string; filename: string; contentType: string; sizeBytes: number }> = [];

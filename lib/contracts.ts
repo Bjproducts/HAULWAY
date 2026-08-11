@@ -5,6 +5,9 @@ export const INTERAC_EMAIL = "jbuoapu@gmail.com";
 export const BUILDING_TYPES = ["House", "Apartment", "Townhouse", "Commercial", "Other"] as const;
 /* Picking this one reveals the unit-number field. */
 export const NEEDS_UNIT = "Apartment";
+
+/* How many hauls a customer may have waiting for a driver at once. */
+export const MAX_OPEN_REQUESTS = 2;
 export const STAIRS_OPTIONS = ["No stairs", "1 flight", "2+ flights", "Elevator"] as const;
 
 export type Customer = { id: string; name: string; phone: string };
@@ -43,6 +46,7 @@ export type Job = {
   scheduledDate: string;
   scheduledTime: string;
   status: string;
+  eta: string | null;
   quoteCents: number | null;
   paymentMethod: "interac" | "cash" | null;
   paymentStatus: "unpaid" | "paid";

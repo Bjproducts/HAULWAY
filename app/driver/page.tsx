@@ -154,6 +154,8 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   const [job, setJob] = useState<JobDetails | null>(null);
   const [pane, setPane] = useState<Pane>("job");
   const [quote, setQuote] = useState("");
+  const [eta, setEta] = useState("");
+  const etaTouched = useRef(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -168,6 +170,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         if (!active) return;
         setJob(data.job);
         if (!quoteTouched.current) setQuote(data.job.quoteCents ? String(data.job.quoteCents / 100) : "");
+        if (!etaTouched.current) setEta(data.job.eta ?? "");
       } catch { /* retry on next poll */ }
     }
     void poll();
@@ -181,7 +184,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
     setBusy(true); setError("");
     try {
       const data = await operatorFetch(`/api/jobs/${jobId}`, { method: "PATCH", body: JSON.stringify({ action: actionName, ...extra }) }) as { job: JobDetails };
-      setJob(data.job); quoteTouched.current = false; await onChanged();
+      setJob(data.job); quoteTouched.current = false; etaTouched.current = false; await onChanged();
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
@@ -274,6 +277,11 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
 
     <div className="op-actions">
       {job.status === "requested" && <button className="op-accept" disabled={busy} onClick={() => void action("approve_request")}>Accept this request<span aria-hidden="true">→</span></button>}
+
+      {job.status !== "requested" && job.status !== "completed" && job.status !== "cancelled" && <div className="op-eta">
+        <label><span>ETA</span><input value={eta} onChange={(event) => { etaTouched.current = true; setEta(event.target.value); }} placeholder="e.g. 25 min, or 3:15 PM" maxLength={40} /></label>
+        <button disabled={busy || !eta.trim()} onClick={() => void action("set_eta", { eta })}>{job.eta ? "Update" : "Set"}</button>
+      </div>}
 
       {(job.status === "approved" || job.status === "quoted") && <div className="op-quote">
         <label><span>$</span><input inputMode="decimal" value={quote} onChange={(event) => { quoteTouched.current = true; setQuote(event.target.value.replace(/[^\d.]/g, "")); }} placeholder="0.00" /></label>

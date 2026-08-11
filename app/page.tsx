@@ -5,7 +5,7 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
-import { BUILDING_TYPES, INTERAC_EMAIL, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
+import { BUILDING_TYPES, INTERAC_EMAIL, MAX_OPEN_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
 
 type Screen = "boot" | "auth" | "app" | "request" | "sent";
 type Tab = "home" | "requests";
@@ -27,10 +27,21 @@ export default function CustomerApp() {
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [service, setService] = useState<Service>("junk");
   const [notice, setNotice] = useState("");
+  const [found, setFound] = useState<Job | null>(null);
+
+  /* Remembers which hauls were still unclaimed, so the next poll can spot the
+     moment a driver takes one and surface it. */
+  const waitingIds = useRef<Set<string> | null>(null);
 
   const refreshJobs = useCallback(async () => {
     try {
       const data = await fetch("/api/jobs", { cache: "no-store" }).then(readJson) as { jobs: Job[] };
+      const previous = waitingIds.current;
+      if (previous) {
+        const claimed = data.jobs.find((job) => job.status === "approved" && previous.has(job.id));
+        if (claimed) setFound(claimed);
+      }
+      waitingIds.current = new Set(data.jobs.filter((job) => job.status === "requested").map((job) => job.id));
       setJobs(data.jobs);
       return data.jobs;
     } catch {
@@ -58,6 +69,12 @@ export default function CustomerApp() {
     return () => window.clearInterval(timer);
   }, [screen, refreshJobs]);
 
+  useEffect(() => {
+    if (!found) return;
+    const timer = window.setTimeout(() => setFound(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [found]);
+
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });
     setCustomer(null); setJobs([]); setOpenJobId(null);
@@ -84,6 +101,8 @@ export default function CustomerApp() {
   }
   if (!customer) return <Splash />;
 
+  const openRequests = jobs.filter((job) => job.status === "requested").length;
+
   return (
     <div className="app-shell">
       <header className="app-bar">
@@ -91,8 +110,14 @@ export default function CustomerApp() {
         <button className="app-avatar" onClick={() => void signOut()} title="Sign out">{initials(customer.name)}</button>
       </header>
 
+      {found && <button className="found-toast" onClick={() => { setFound(null); setTab("requests"); setOpenJobId(found.id); }}>
+        <span className="found-toast-icon" aria-hidden="true">🚚</span>
+        <span><strong>A driver took your haul</strong><small>{found.item} — tap to track it</small></span>
+        <i aria-hidden="true">→</i>
+      </button>}
+
       <main className="app-body">
-        {tab === "home" && <HomeTab customer={customer} activeCount={jobs.filter((job) => job.status !== "completed").length} onPick={(picked) => { setService(picked); setScreen("request"); }} />}
+        {tab === "home" && <HomeTab customer={customer} activeCount={jobs.filter((job) => job.status !== "completed").length} openRequests={openRequests} onPick={(picked) => { setService(picked); setScreen("request"); }} />}
         {/* Opening a request shows either "waiting to be approved" or its chat. */}
         {tab === "requests" && (openJobId
           ? <RequestView jobId={openJobId} onBack={() => { setOpenJobId(null); setNotice(""); void refreshJobs(); }} onChanged={refreshJobs} />
@@ -115,26 +140,37 @@ function TabButton({ icon, label, active, badge = 0, onClick }: { icon: string; 
 
 /* ---------- Home ---------- */
 
-function HomeTab({ customer, activeCount, onPick }: { customer: Customer; activeCount: number; onPick: (service: Service) => void }) {
+function HomeTab({ customer, activeCount, openRequests, onPick }: { customer: Customer; activeCount: number; openRequests: number; onPick: (service: Service) => void }) {
+  const atLimit = openRequests >= MAX_OPEN_REQUESTS;
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
+    if (atLimit) return;
     const timer = window.setTimeout(() => setOpen(true), 1100);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [atLimit]);
 
   return (
     <section className="home-tab">
       <div className="home-greeting">
         <span className="micro-label enter" style={{ animationDelay: ".05s" }}>HI {customer.name.split(" ")[0].toUpperCase()}</span>
         <h1>
-          <span className="enter" style={{ animationDelay: ".18s" }}>Ohh, what can</span>
-          <span className="enter" style={{ animationDelay: ".30s" }}>we help you</span>
-          <span className="enter accent" style={{ animationDelay: ".42s" }}>with today?</span>
+          {atLimit ? <>
+            <span className="enter" style={{ animationDelay: ".18s" }}>Two hauls are</span>
+            <span className="enter accent" style={{ animationDelay: ".30s" }}>already in motion.</span>
+          </> : <>
+            <span className="enter" style={{ animationDelay: ".18s" }}>Ohh, what can</span>
+            <span className="enter" style={{ animationDelay: ".30s" }}>we help you</span>
+            <span className="enter accent" style={{ animationDelay: ".42s" }}>with today?</span>
+          </>}
         </h1>
       </div>
 
-      <div className={`service-picker enter ${open ? "open" : ""}`} style={{ animationDelay: ".58s" }}>
+      {atLimit ? <div className="limit-card enter" style={{ animationDelay: ".5s" }}>
+        <span className="limit-icon" aria-hidden="true">🚚</span>
+        <strong>You&apos;re at the {MAX_OPEN_REQUESTS}-haul limit</strong>
+        <small>Both are still waiting for a driver. As soon as one gets picked up, you can book the next.</small>
+      </div> : <div className={`service-picker enter ${open ? "open" : ""}`} style={{ animationDelay: ".58s" }}>
         <button className="picker-trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls="service-options">
           <span className="picker-dot" aria-hidden="true" />
           <span>Choose a service</span>
@@ -154,7 +190,7 @@ function HomeTab({ customer, activeCount, onPick }: { customer: Customer; active
             </button>
           </div>
         </div>
-      </div>
+      </div>}
 
       <div className="home-foot enter" style={{ animationDelay: ".72s" }}>
         <span>Edmonton</span><span>Photos required</span><span>Quote first</span>
@@ -205,6 +241,7 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   const [error, setError] = useState("");
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showTracking, setShowTracking] = useState(true);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -266,13 +303,33 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   if (job.status === "requested") return <section className="waiting-page">
     <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button><span className="status-pill requested">{statusLabel(job.status)}</span></div>
     <div className="waiting-body">
-      <span className="waiting-pulse" aria-hidden="true"><i /><i /><i /></span>
-      <h2>Waiting to be approved</h2>
-      <p>A Haulway driver is reviewing your request. Once it&apos;s accepted, chat opens here and your quote arrives in it.</p>
+      <span className="radar" aria-hidden="true"><i /><i /><i /><b>🚚</b></span>
+      <h2>Looking for a driver</h2>
+      <p>We&apos;re finding a Haulway driver for this haul. You&apos;ll get a notification the moment one takes it.</p>
       <span className="waiting-meta">{job.item} · {shortDate(job.scheduledDate)} · {displayTime(job.scheduledTime)}</span>
     </div>
     {error && <p className="chat-error">{error}</p>}
     <div className="waiting-foot"><button className="cancel-button" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel request</button></div>
+    {cancelSheet}
+  </section>;
+
+  /* A driver just took it — lead with the truck and the ETA, chat is one tap away. */
+  if (job.status === "approved" && showTracking) return <section className="track-page">
+    <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button><span className="status-pill approved">Driver found</span></div>
+    <div className="track-body">
+      <TruckScene />
+      <h2>A driver took your haul</h2>
+      <div className="eta-block">
+        <small>ESTIMATED ARRIVAL</small>
+        <strong>{job.eta ?? "Setting an ETA…"}</strong>
+      </div>
+      <p>They&apos;ll send your quote in the chat. Message them any time about access or timing.</p>
+    </div>
+    {error && <p className="chat-error">{error}</p>}
+    <div className="track-foot">
+      <button className="hw-primary wide" onClick={() => setShowTracking(false)}>Open chat<span aria-hidden="true">→</span></button>
+      <button className="cancel-button" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel request</button>
+    </div>
     {cancelSheet}
   </section>;
 
@@ -290,6 +347,12 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
           </span>
         : <span className="chat-live" aria-hidden="true" />}
     </div>
+
+    {job.eta && job.status !== "completed" && <button className="eta-strip" onClick={() => setShowTracking(true)}>
+      <span className="eta-truck" aria-hidden="true">🚚</span>
+      <span><small>ARRIVING</small><strong>{job.eta}</strong></span>
+      <i aria-hidden="true">→</i>
+    </button>}
 
     <div className="chat-scroll">
       {job.messages.length === 0 && <p className="chat-hint">A driver accepted your request. Your quote will arrive here.</p>}
@@ -349,6 +412,28 @@ function RequestView({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
 
 /* ---------- Request sent ---------- */
 
+function TruckScene() {
+  return <div className="truck-scene" aria-hidden="true">
+    <span className="truck-sun" />
+    <span className="truck-hill a" /><span className="truck-hill b" />
+    <span className="truck">
+      <span className="truck-box" />
+      <span className="truck-cab" />
+      <span className="truck-wheel back" /><span className="truck-wheel front" />
+    </span>
+    <span className="truck-road"><i /></span>
+  </div>;
+}
+
+function BookingLoader() {
+  return <main className="booking-loader">
+    <TruckScene />
+    <h2>Booking your haul…</h2>
+    <p>Uploading your photos and putting it in front of our drivers.</p>
+    <span className="booking-bar"><i /></span>
+  </main>;
+}
+
 function RequestSent({ onDone }: { onDone: () => void }) {
   /* Held in a ref so the parent's 5s job poll re-rendering us never restarts the timer. */
   const done = useRef(onDone);
@@ -359,9 +444,9 @@ function RequestSent({ onDone }: { onDone: () => void }) {
   }, []);
 
   return <main className="sent-screen">
-    <span className="sent-check" aria-hidden="true"><i /></span>
-    <h1>Request sent.</h1>
-    <p>A driver will be with you shortly. Your quote lands in Requests once we&apos;ve looked over your photos.</p>
+    <span className="radar big" aria-hidden="true"><i /><i /><i /><b>🚚</b></span>
+    <h1>Looking for a driver</h1>
+    <p>Your haul is booked and out to our drivers. We&apos;ll notify you the moment one takes it.</p>
     <button className="hw-primary wide" onClick={() => done.current()}>View my requests<span aria-hidden="true">→</span></button>
   </main>;
 }
@@ -478,6 +563,9 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
     } finally { setBusy(false); }
   }
 
+  /* Takes over the screen while photos upload — the flow behind it is done with. */
+  if (busy) return <BookingLoader />;
+
   return <div className="flow-shell">
     <header className="flow-bar">
       <button className="flow-back" onClick={() => (step === 1 ? onCancel() : setStep(step - 1))} aria-label="Back">←</button>
@@ -568,7 +656,7 @@ function RequestFlow({ service, onCancel, onCreated }: { service: Service; onCan
     <div className="flow-foot">
       {step === 1 && <button className="hw-primary wide" onClick={continuePhotos}>Continue<span>→</span></button>}
       {step === 2 && <button className="hw-primary wide" disabled={!detailsReady} onClick={() => setStep(3)}>Continue<span>→</span></button>}
-      {step === 3 && <button className="hw-primary wide" disabled={busy} onClick={submit}>{busy ? "Uploading…" : "Send request"}<span>→</span></button>}
+      {step === 3 && <button className="hw-primary wide" disabled={busy} onClick={submit}>Book my haul<span aria-hidden="true">→</span></button>}
     </div>
   </div>;
 }
@@ -623,4 +711,4 @@ function displayTime(value: string) {
   if (hours > 23 || Number(match[2]) > 59) return value.trim();
   return `${hours % 12 === 0 ? 12 : hours % 12}:${match[2]} ${hours < 12 ? "AM" : "PM"}`;
 }
-function statusLabel(status: string) { return ({ requested: "Awaiting approval", approved: "Driver accepted", quoted: "Quote ready", accepted: "Booked", in_progress: "In progress", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status; }
+function statusLabel(status: string) { return ({ requested: "Looking for a driver", approved: "Driver found", quoted: "Quote ready", accepted: "Booked", in_progress: "On the way", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status; }

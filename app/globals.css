@@ -293,6 +293,81 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .empty-state .hw-primary { margin-top: var(--s3); }
 .empty-state.locked > span { color: var(--ink-3); }
 
+/* ---------- truck scene ---------- */
+.truck-scene { position: relative; width: 100%; max-width: 300px; height: 132px; margin: 0 auto; overflow: hidden; border-radius: var(--r-lg); background: linear-gradient(180deg, #dff0e4 0%, #eef6ea 62%, #e6e2d6 62%, #e6e2d6 100%); }
+.truck-sun { position: absolute; right: 26px; top: 18px; width: 30px; height: 30px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 8px rgba(212,240,136,.32); }
+.truck-hill { position: absolute; bottom: 38%; border-radius: 50% 50% 0 0; background: #b9d7c0; }
+.truck-hill.a { left: -14%; width: 56%; height: 34%; animation: hill-slide 3.4s linear infinite; }
+.truck-hill.b { left: 58%; width: 48%; height: 26%; background: #cae0cf; animation: hill-slide 4.6s linear infinite; }
+@keyframes hill-slide { to { transform: translateX(-190px); } }
+.truck-road { position: absolute; left: 0; right: 0; bottom: 0; height: 38%; overflow: hidden; }
+.truck-road i { position: absolute; top: 42%; left: 0; width: 200%; height: 3px; border-radius: var(--r-full);
+  background: repeating-linear-gradient(90deg, rgba(255,255,255,.85) 0 22px, transparent 22px 44px);
+  animation: road-scroll .55s linear infinite; }
+@keyframes road-scroll { to { transform: translateX(-44px); } }
+.truck { position: absolute; left: 50%; bottom: 30%; width: 118px; height: 52px; margin-left: -59px; animation: truck-bob .5s ease-in-out infinite alternate; }
+@keyframes truck-bob { to { transform: translateY(-2px); } }
+.truck-box { position: absolute; left: 0; bottom: 9px; width: 72px; height: 40px; border-radius: 5px 4px 3px 3px; background: var(--forest); box-shadow: inset -6px 0 0 rgba(0,0,0,.12); }
+.truck-cab { position: absolute; right: 0; bottom: 9px; width: 44px; height: 29px; border-radius: 4px 11px 3px 3px; background: var(--orange-dk); }
+.truck-cab::after { content: ""; position: absolute; right: 6px; top: 5px; width: 17px; height: 12px; border-radius: 2px 6px 2px 2px; background: #cfe6f2; }
+.truck-wheel { position: absolute; bottom: 0; width: 20px; height: 20px; border-radius: 50%; background: #232f2a; border: 4px solid #4a5852; animation: wheel-spin .5s linear infinite; }
+.truck-wheel.back { left: 12px; }
+.truck-wheel.front { right: 8px; }
+@keyframes wheel-spin { to { transform: rotate(360deg); } }
+
+/* ---------- radar: looking for a driver ---------- */
+.radar { position: relative; width: 108px; height: 108px; display: grid; place-items: center; }
+.radar i { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--orange); opacity: 0; animation: radar-out 2.4s ease-out infinite; }
+.radar i:nth-child(2) { animation-delay: .8s; }
+.radar i:nth-child(3) { animation-delay: 1.6s; }
+.radar b { position: relative; width: 62px; height: 62px; display: grid; place-items: center; border-radius: 50%; background: var(--surface); font-size: 27px; box-shadow: var(--e2); }
+.radar.big { width: 132px; height: 132px; }
+.radar.big i { border-color: var(--lime); }
+.radar.big b { width: 76px; height: 76px; font-size: 34px; background: rgba(255,255,255,.12); box-shadow: none; }
+@keyframes radar-out { 0% { transform: scale(.55); opacity: .85; } 100% { transform: scale(1); opacity: 0; } }
+
+/* ---------- booking loader ---------- */
+.booking-loader { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s4); padding: var(--s8) var(--s6); text-align: center; background: var(--canvas); }
+.booking-loader h2 { font-size: var(--t-2xl); }
+.booking-loader p { max-width: 30ch; color: var(--ink-2); line-height: 1.55; }
+.booking-bar { width: 150px; height: 4px; margin-top: var(--s2); border-radius: var(--r-full); background: var(--sunken); overflow: hidden; }
+.booking-bar i { display: block; width: 40%; height: 100%; border-radius: var(--r-full); background: var(--orange-dk); animation: splash-load 1.1s ease-in-out infinite; }
+
+/* ---------- driver found: tracking ---------- */
+.track-page { position: relative; display: grid; grid-template-rows: auto minmax(0,1fr) auto; }
+.track-body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s4); padding: var(--s5) var(--s6); text-align: center; overflow-y: auto; }
+.track-body h2 { font-size: var(--t-2xl); }
+.track-body p { max-width: 31ch; color: var(--ink-2); line-height: 1.55; }
+.eta-block { display: grid; gap: var(--s1); padding: var(--s4) var(--s6); border-radius: var(--r-lg); background: var(--forest); color: #fff; box-shadow: var(--e2); }
+.eta-block small { color: var(--lime); font-size: var(--t-2xs); font-weight: 800; letter-spacing: .1em; }
+.eta-block strong { font-size: var(--t-xl); font-weight: 800; letter-spacing: -.03em; }
+.track-foot { display: grid; gap: var(--s2); padding: var(--s4) var(--s5) calc(env(safe-area-inset-bottom) + var(--s4)); background: var(--surface); border-top: 1px solid var(--line-soft); }
+
+.eta-strip { display: flex; align-items: center; gap: var(--s3); margin: var(--s3) var(--s4) 0; padding: var(--s3) var(--s4); border: 0; border-radius: var(--r-md); background: var(--forest); color: #fff; text-align: left; cursor: pointer; box-shadow: var(--e1); }
+.eta-truck { font-size: var(--t-xl); }
+.eta-strip span:not(.eta-truck) { display: grid; gap: 1px; }
+.eta-strip small { color: var(--lime); font-size: var(--t-2xs); font-weight: 800; letter-spacing: .1em; }
+.eta-strip strong { font-size: var(--t-md); font-weight: 750; }
+.eta-strip i { margin-left: auto; font-style: normal; color: rgba(255,255,255,.65); }
+
+/* ---------- driver found toast ---------- */
+.found-toast { position: absolute; z-index: 50; left: var(--s4); right: var(--s4); top: calc(env(safe-area-inset-top) + 68px);
+  display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border: 0; border-radius: var(--r-lg);
+  background: var(--forest); color: #fff; text-align: left; cursor: pointer; box-shadow: var(--e3);
+  animation: toast-in .4s var(--ease) both; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-14px); } }
+.found-toast-icon { font-size: var(--t-xl); animation: truck-bob .5s ease-in-out infinite alternate; }
+.found-toast span:not(.found-toast-icon) { display: grid; gap: 1px; min-width: 0; }
+.found-toast strong { font-size: var(--t-md); font-weight: 750; }
+.found-toast small { color: rgba(255,255,255,.68); font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.found-toast i { margin-left: auto; font-style: normal; color: var(--lime); }
+
+/* ---------- booking limit ---------- */
+.limit-card { display: grid; justify-items: center; gap: var(--s2); padding: var(--s6) var(--s5); border-radius: var(--r-xl); background: var(--surface); text-align: center; box-shadow: var(--e1); }
+.limit-icon { font-size: 34px; }
+.limit-card strong { font-size: var(--t-lg); }
+.limit-card small { max-width: 32ch; color: var(--ink-2); font-size: var(--t-sm); line-height: 1.5; }
+
 /* ---------- waiting for approval ---------- */
 .waiting-page { position: relative; display: grid; grid-template-rows: auto minmax(0,1fr) auto; }
 .waiting-body { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: var(--s3); padding: var(--s5) var(--s6); }
@@ -596,6 +671,14 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .op-accept { width: 100%; min-height: 54px; display: inline-flex; align-items: center; justify-content: space-between; padding: 0 var(--s5); border: 0; border-radius: var(--r-md); background: var(--forest); color: #fff; font-size: var(--t-md); font-weight: 800; cursor: pointer; box-shadow: var(--e2); transition: background .15s var(--ease), transform .15s var(--ease); }
 .op-accept:hover { background: var(--forest-hi); }
 .op-accept:active { transform: translateY(1px); }
+.op-eta { display: grid; grid-template-columns: 1fr auto; gap: var(--s2); margin-bottom: var(--s2); }
+.op-eta label { min-width: 0; display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s4); border: 1px solid transparent; border-radius: var(--r-md); background: var(--sunken); }
+.op-eta label:focus-within { background: var(--surface); border-color: var(--forest); box-shadow: 0 0 0 3px rgba(20,69,58,.1); }
+.op-eta label span { flex: 0 0 auto; color: var(--ink-3); font-size: var(--t-2xs); font-weight: 800; letter-spacing: .1em; }
+.op-eta input { min-width: 0; width: 100%; min-height: 50px; border: 0; outline: 0; background: none; font-size: 16px; font-weight: 700; }
+.op-eta input::placeholder { color: var(--ink-ph); font-weight: 400; }
+.op-eta button { min-height: 50px; padding: 0 var(--s4); border: 0; border-radius: var(--r-md); background: var(--forest); color: #fff; font-size: var(--t-sm); font-weight: 800; cursor: pointer; }
+
 .op-quote { display: grid; grid-template-columns: 1fr auto; gap: var(--s2); }
 .op-quote label { min-width: 0; display: flex; align-items: center; gap: var(--s1); padding: 0 var(--s4); border: 1px solid transparent; border-radius: var(--r-md); background: var(--sunken); font-size: var(--t-xl); font-weight: 800; }
 .op-quote label:focus-within { background: var(--surface); border-color: var(--forest); box-shadow: 0 0 0 3px rgba(20,69,58,.1); }
