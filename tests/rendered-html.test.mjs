@@ -94,3 +94,20 @@ test("security controls and durable request-update SMS are wired end to end", as
   assert.match(exampleEnv, /TWILIO_API_KEY_SECRET/);
   assert.doesNotMatch(exampleEnv, /sb_secret_|eyJ/);
 });
+
+test("customer requests stay progress-first with optional chat and swipe completion", async () => {
+  const [page, styles] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(page, /const \[showChat, setShowChat\] = useState\(false\)/);
+  assert.match(page, /Haul booked ✓/);
+  assert.match(page, /ESTIMATED ARRIVAL/);
+  assert.match(page, /Message Haulway/);
+  assert.match(page, /function SwipeToConfirm/);
+  assert.match(page, /Swipe to confirm complete/);
+  assert.doesNotMatch(page, /className="complete-button"/);
+  assert.match(styles, /\.swipe-confirm/);
+  assert.match(styles, /touch-action: none/);
+  assert.match(styles, /prefers-reduced-motion/);
+});
