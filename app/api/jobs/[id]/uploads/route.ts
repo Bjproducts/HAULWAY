@@ -1,11 +1,15 @@
 import { getStorage, getSupabase, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
 import { addSystemMessage, canAccessJob, getJobDetails, getJobRow, updateJob } from "@/lib/jobs";
-import { getErrorMessage, jsonError } from "@/lib/responses";
+import { internalError, jsonError } from "@/lib/responses";
+import { guardMutation } from "@/lib/security";
+import { notifyJobSms } from "@/lib/sms";
 
 type Context = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, context: Context) {
+  const blocked = guardMutation(request, { json: false });
+  if (blocked) return blocked;
   const session = await getApiSession(request);
   if (!session || session.role !== "customer") return jsonError("Please sign in as a customer.", 401);
 
@@ -32,14 +36,17 @@ export async function POST(request: Request, context: Context) {
     }));
 
     await updateJob(id, { upload_complete: true });
-    await addSystemMessage(id, "Request received. We’ll review the details and send your quote here.");
+    const eventId = await addSystemMessage(id, "Request received. We’ll review the details and send your quote here.");
+    await notifyJobSms(job, eventId, "HAULWAY: We received your request and are finding a driver. Updates will be sent here. Reply STOP to opt out.");
     return Response.json({ job: await getJobDetails(id) }, { status: 201 });
   } catch (error) {
-    return jsonError(getErrorMessage(error), 500);
+    return internalError(error, "jobs:uploads:finalize");
   }
 }
 
 export async function DELETE(request: Request, context: Context) {
+  const blocked = guardMutation(request, { json: false });
+  if (blocked) return blocked;
   const session = await getApiSession(request);
   if (!session || session.role !== "customer") return jsonError("Please sign in as a customer.", 401);
 
@@ -61,6 +68,6 @@ export async function DELETE(request: Request, context: Context) {
     throwDatabaseError(deleteError);
     return Response.json({ ok: true });
   } catch (error) {
-    return jsonError(getErrorMessage(error), 500);
+    return internalError(error, "jobs:uploads:discard");
   }
 }

@@ -2,13 +2,22 @@ import { getSupabase, throwDatabaseError } from "@/db";
 
 const CUSTOMER_COOKIE = "haulway_customer_session";
 const OPERATOR_COOKIE = "haulway_operator_session";
-const SESSION_SECONDS = 60 * 60 * 24 * 30;
+const CUSTOMER_SESSION_SECONDS = 60 * 60 * 24 * 30;
+const OPERATOR_SESSION_SECONDS = 60 * 60 * 12;
+export const PIN_ITERATIONS = 600000;
 
 export type AuthSession = {
   role: "customer" | "operator";
   subjectId: string;
   customer?: { id: string; name: string; phone: string };
 };
+
+/* SMS verification is the default. Setting CUSTOMER_PHONE_OTP=off opens the
+   unverified sign-in route while a paid SMS provider is still pending — it is a
+   deliberate, temporary downgrade and must be switched back on once SMS works. */
+export function phoneOtpRequired() {
+  return (process.env.CUSTOMER_PHONE_OTP ?? "on").trim().toLowerCase() !== "off";
+}
 
 export function normalizePhone(value: string) {
   const digits = value.replace(/\D/g, "");
@@ -18,18 +27,28 @@ export function normalizePhone(value: string) {
 }
 
 export async function createSession(role: "customer" | "operator", subjectId: string, request: Request) {
+  const sessionSeconds = role === "operator" ? OPERATOR_SESSION_SECONDS : CUSTOMER_SESSION_SECONDS;
   const token = `${crypto.randomUUID()}${crypto.randomUUID().replaceAll("-", "")}`;
   const tokenHash = await sha256(token);
-  const expires = new Date(Date.now() + SESSION_SECONDS * 1000).toISOString();
-  const { error } = await getSupabase().from("sessions").insert({
+  const expires = new Date(Date.now() + sessionSeconds * 1000).toISOString();
+  const db = getSupabase();
+  /* Keep the session table bounded and invalidate older operator sessions when
+     a new privileged login succeeds. */
+  const { error: cleanupError } = await db.from("sessions").delete().lt("expires_at", new Date().toISOString());
+  throwDatabaseError(cleanupError);
+  if (role === "operator") {
+    const { error: invalidateError } = await db.from("sessions").delete().eq("role", role).eq("subject_id", subjectId);
+    throwDatabaseError(invalidateError);
+  }
+  const { error } = await db.from("sessions").insert({
     token_hash: tokenHash,
     role,
     subject_id: subjectId,
     expires_at: expires,
   });
   throwDatabaseError(error);
-  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return `${cookieName(role)}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_SECONDS}${secure}`;
+  const secure = process.env.NODE_ENV === "production" || new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${cookieName(role)}=${token}; HttpOnly; Path=/; SameSite=Strict; Priority=High; Max-Age=${sessionSeconds}${secure}`;
 }
 
 export async function destroySession(request: Request, role: "customer" | "operator") {
@@ -38,7 +57,8 @@ export async function destroySession(request: Request, role: "customer" | "opera
     const { error } = await getSupabase().from("sessions").delete().eq("token_hash", await sha256(token));
     throwDatabaseError(error);
   }
-  return `${cookieName(role)}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`;
+  const secure = process.env.NODE_ENV === "production" || new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${cookieName(role)}=; HttpOnly; Path=/; SameSite=Strict; Priority=High; Max-Age=0${secure}`;
 }
 
 export async function getSession(request: Request, expectedRole?: "customer" | "operator"): Promise<AuthSession | null> {
@@ -59,12 +79,18 @@ export async function getSession(request: Request, expectedRole?: "customer" | "
       if (session.role === "customer") {
         const { data, error: customerError } = await getSupabase()
           .from("customers")
-          .select("id, name, phone")
+          .select("id, name, phone, auth_user_id")
           .eq("id", session.subject_id)
           .maybeSingle();
         throwDatabaseError(customerError);
-        if (data) customer = { id: data.id, name: data.name, phone: data.phone };
+        /* While OTP is required, a session is only honoured once Supabase Auth has
+           proven the phone number. With CUSTOMER_PHONE_OTP=off the deployment has
+           explicitly accepted unverified sign-in, so the link is not demanded —
+           turning OTP back on immediately invalidates every unverified session. */
+        const proven = Boolean(data?.auth_user_id) || !phoneOtpRequired();
+        if (data && proven) customer = { id: data.id, name: data.name, phone: data.phone };
       }
+      if (session.role === "customer" && !customer) return null;
       return {
         role: session.role,
         subjectId: session.subject_id,
@@ -82,9 +108,9 @@ export function getApiSession(request: Request) {
   return getSession(request, requestedRole);
 }
 
-export async function hashPin(pin: string, salt: string) {
+export async function hashPin(pin: string, salt: string, iterations = PIN_ITERATIONS) {
   const keyMaterial = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: new TextEncoder().encode(salt), iterations: 120000, hash: "SHA-256" }, keyMaterial, 256);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: new TextEncoder().encode(salt), iterations, hash: "SHA-256" }, keyMaterial, 256);
   return bytesToHex(new Uint8Array(bits));
 }
 

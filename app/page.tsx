@@ -32,6 +32,7 @@ export default function CustomerApp() {
   const [notice, setNotice] = useState("");
   const [updates, setUpdates] = useState<InAppUpdate[]>([]);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [otpRequired, setOtpRequired] = useState(true);
   const [draft, setDraft] = useState<Draft | null>(readDraft);
   /* Lazy initialiser: readSeen guards its own storage access, so it safely returns
      {} during SSR and the real map on the client. */
@@ -97,7 +98,9 @@ export default function CustomerApp() {
       .then(([data]) => {
         if (!active) return;
         sessionStorage.setItem("hw_splash", "1");
-        const next = (data as { customer: Customer | null }).customer;
+        const payload = data as { customer: Customer | null; otpRequired?: boolean };
+        const next = payload.customer;
+        setOtpRequired(payload.otpRequired !== false);
         setCustomer(next);
         setScreen(next ? "app" : "auth");
         if (next) void refreshJobs();
@@ -178,7 +181,7 @@ export default function CustomerApp() {
   const unread = (job: Job) => (job.messageCount ?? 0) > (seen[job.id] ?? 0);
 
   if (screen === "boot") return <Splash />;
-  if (screen === "auth") return <Registration onRegistered={(next) => { setCustomer(next); setScreen("app"); void refreshJobs(); }} />;
+  if (screen === "auth") return <Registration otpRequired={otpRequired} onRegistered={(next) => { setCustomer(next); setScreen("app"); void refreshJobs(); }} />;
   if (screen === "request" && customer) {
     return <RequestFlow
       service={service}
@@ -634,33 +637,72 @@ function Splash() {
   return <main className="splash-screen"><div className="splash-route route-a" /><div className="splash-route route-b" /><Logo light /><h1>Junk gone.<br />Small moves made simple.</h1><span className="splash-loader"><i /></span></main>;
 }
 
-function Registration({ onRegistered }: { onRegistered: (customer: Customer) => void }) {
+function Registration({ otpRequired, onRegistered }: { otpRequired: boolean; onRegistered: (customer: Customer) => void }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [stage, setStage] = useState<"details" | "code">("details");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function register(event: FormEvent) {
-    event.preventDefault();
+  async function sendCode() {
     setBusy(true); setError("");
     try {
-      const data = await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone }) }).then(readJson) as { customer: Customer };
+      await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone }) }).then(readJson);
+      setStage("code");
+    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+  }
+
+  /* Until SMS is funded the server runs the unverified route; the OTP screens
+     below stay in place and switch back on the moment it is re-enabled. */
+  async function signInDirect() {
+    setBusy(true); setError("");
+    try {
+      const data = await fetch("/api/auth/direct", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone }) }).then(readJson) as { customer: Customer };
+      onRegistered(data.customer);
+    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (stage === "details") return void (otpRequired ? sendCode() : signInDirect());
+    setBusy(true); setError("");
+    try {
+      const data = await fetch("/api/auth/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone, code }) }).then(readJson) as { customer: Customer };
       onRegistered(data.customer);
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
   return <main className="auth-screen">
     <div className="auth-top"><Logo /><div className="auth-art" aria-hidden="true"><i /><b>02</b><span>01</span></div></div>
-    <form className="auth-sheet" onSubmit={register}>
-      <span className="micro-label">WELCOME</span>
-      <h1>Clear space.<br /><em>Keep moving.</em></h1>
-      <p>Name and number. That&apos;s it.</p>
-      <div className="auth-trust" aria-label="Registration benefits"><span>✓ No password</span><span>✓ Fast booking</span></div>
-      <label>Your name<input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your full name" /></label>
-      <label>Mobile number<span className="phone-field"><span>+1</span><input autoComplete="tel" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(780) 555-0148" /></span></label>
+    <form className="auth-sheet" onSubmit={submit}>
+      <span className="micro-label">{stage === "details" ? "WELCOME" : "VERIFY YOUR NUMBER"}</span>
+      <h1>{stage === "details" ? <>Clear space.<br /><em>Keep moving.</em></> : <>Check your<br /><em>messages.</em></>}</h1>
+      <p>{stage === "details"
+        ? otpRequired ? "Tell us where to text your secure sign-in code." : "Name and number. That's it."
+        : <>We sent a 6-digit code to <strong>{phone}</strong>.</>}</p>
+      <div className="auth-trust" aria-label="Registration benefits">
+        <span>{otpRequired ? "✓ SMS verified" : "✓ Edmonton owned"}</span><span>✓ No password</span>
+      </div>
+      {stage === "details" ? <>
+        <label>Your name<input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your full name" /></label>
+        <label>Mobile number<span className="phone-field"><span>+1</span><input autoComplete="tel" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(780) 555-0148" /></span></label>
+      </> : <>
+        <label>Verification code<input className="auth-code" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" /></label>
+        <div className="auth-code-actions">
+          <button type="button" onClick={() => { setStage("details"); setCode(""); setError(""); }}>Change number</button>
+          <button type="button" disabled={busy} onClick={() => void sendCode()}>Send again</button>
+        </div>
+      </>}
       {error && <p className="field-error" role="alert">{error}</p>}
-      <button className="hw-primary wide" disabled={busy}>{busy ? "Saving…" : "Continue →"}</button>
-      <small>Your details are saved securely for your requests.</small>
+      <button className="hw-primary wide" disabled={busy}>
+        {busy
+          ? stage === "details" ? (otpRequired ? "Sending…" : "Signing in…") : "Verifying…"
+          : stage === "details" ? (otpRequired ? "Text me a code →" : "Continue →") : "Verify & continue →"}
+      </button>
+      <small>{stage === "details"
+        ? otpRequired ? "Standard message rates may apply." : "Your details are saved securely for your requests."
+        : "Codes expire quickly and can only be used once."}</small>
     </form>
   </main>;
 }

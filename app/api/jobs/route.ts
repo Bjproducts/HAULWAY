@@ -2,10 +2,22 @@ import { getStorage, getSupabase, getSupabasePublicConfig, throwDatabaseError } 
 import { getApiSession } from "@/lib/auth";
 import { BUILDING_TYPES, MAX_OPEN_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS } from "@/lib/contracts";
 import { flattenJob, mapJob } from "@/lib/jobs";
-import { getErrorMessage, jsonError } from "@/lib/responses";
+import { internalError, jsonError } from "@/lib/responses";
+import { consumeRateLimit, guardMutation } from "@/lib/security";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 60 * 1024 * 1024;
+const ALLOWED_MEDIA = new Map<string, Set<string>>([
+  ["image/jpeg", new Set([".jpg", ".jpeg"])],
+  ["image/png", new Set([".png"])],
+  ["image/webp", new Set([".webp"])],
+  ["image/gif", new Set([".gif"])],
+  ["image/heic", new Set([".heic"])],
+  ["image/heif", new Set([".heif"])],
+  ["video/mp4", new Set([".mp4", ".m4v"])],
+  ["video/quicktime", new Set([".mov"])],
+  ["video/webm", new Set([".webm"])],
+]);
 
 type MediaInput = {
   filename?: string;
@@ -47,6 +59,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const blocked = guardMutation(request, { maxBytes: 96 * 1024 });
+  if (blocked) return blocked;
   const session = await getApiSession(request);
   if (!session || session.role !== "customer") return jsonError("Please sign in as a customer.", 401);
 
@@ -84,8 +98,9 @@ export async function POST(request: Request) {
     const scheduledTime = normalizeTime(textField(body.scheduledTime));
     if (serviceType !== "junk" && serviceType !== "move") return jsonError("Choose a service.");
     if (!pickup || pickup.length > 180) return jsonError("Enter the pickup address.");
-    if (serviceType === "move" && !dropoff) return jsonError("Enter the drop-off address.");
+    if (serviceType === "move" && (!dropoff || dropoff.length > 180)) return jsonError("Enter a valid drop-off address.");
     if (!scheduledDate || !scheduledTime) return jsonError("Choose a date and time.");
+    if (!validScheduledDate(scheduledDate)) return jsonError("Choose a date within the next year.");
     if (description.length > 1000) return jsonError("Keep the description under 1,000 characters.");
 
     /* The description is one free-text box. `item` is the headline the operator sees in
@@ -96,9 +111,12 @@ export async function POST(request: Request) {
     const media = Array.isArray(body.media) ? body.media.map(normalizeMedia) : [];
     if (!media.length || !media.some((file) => file.contentType.startsWith("image/"))) return jsonError("Add at least one photo.");
     if (media.length > 8) return jsonError("Upload up to 8 photos or videos.");
-    if (media.some((file) => !file.contentType.startsWith("image/") && !file.contentType.startsWith("video/"))) return jsonError("Only photos and videos are allowed.");
+    if (media.some((file) => !ALLOWED_MEDIA.get(file.contentType)?.has(safeExtension(file.filename)))) return jsonError("Use a supported photo or video format.");
     if (media.some((file) => file.sizeBytes > MAX_FILE_BYTES)) return jsonError("Each file must be 25 MB or smaller.");
     if (media.reduce((total, file) => total + file.sizeBytes, 0) > MAX_TOTAL_BYTES) return jsonError("Uploads must total 60 MB or less.");
+
+    const allowed = await consumeRateLimit(request, "job-create", 6, 60 * 60, session.subjectId);
+    if (!allowed) return jsonError("Too many booking attempts. Try again later.", 429);
 
     /* Cap how many hauls sit unclaimed per customer, so the board stays real. */
     const { count: openCount, error: countError } = await getSupabase()
@@ -162,7 +180,7 @@ export async function POST(request: Request) {
     return Response.json({ jobId, storage: getSupabasePublicConfig(), uploads }, { status: 201 });
   } catch (error) {
     if (insertedJobId) await getSupabase().from("jobs").delete().eq("id", insertedJobId);
-    return jsonError(getErrorMessage(error), 500);
+    return internalError(error, "jobs:create");
   }
 }
 
@@ -192,20 +210,32 @@ function deriveItem(description: string, serviceType: "junk" | "move") {
 /* Accepts the browser's 24-hour "HH:MM" and stores a readable 12-hour label. */
 function normalizeTime(value: string) {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value);
-  if (!match) return value.slice(0, 40);
+  if (!match) return "";
   const hours = Number(match[1]);
   if (hours > 23 || Number(match[2]) > 59) return "";
   return `${hours % 12 === 0 ? 12 : hours % 12}:${match[2]} ${hours < 12 ? "AM" : "PM"}`;
 }
 
 function normalizeMedia(value: MediaInput) {
-  const filename = textField(value?.filename).slice(0, 180);
+  const filename = Array.from(textField(value?.filename))
+    .filter((character) => character.charCodeAt(0) > 31 && character.charCodeAt(0) !== 127)
+    .join("")
+    .slice(0, 180);
   const contentType = textField(value?.contentType).toLowerCase();
   const sizeBytes = Number(value?.sizeBytes);
   if (!filename || !Number.isInteger(sizeBytes) || sizeBytes <= 0) {
     throw new Error("Invalid upload details.");
   }
   return { filename, contentType, sizeBytes };
+}
+
+function validScheduledDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const selected = new Date(`${value}T12:00:00Z`);
+  if (Number.isNaN(selected.getTime())) return false;
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return selected.getTime() >= today && selected.getTime() <= today + 366 * 24 * 60 * 60 * 1000;
 }
 
 function safeExtension(filename: string) {

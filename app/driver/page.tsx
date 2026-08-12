@@ -145,6 +145,7 @@ export default function DriverPortal() {
 function OperatorGate({ mode, error, onError, onSuccess }: { mode: "setup" | "login"; error: string; onError: (error: string) => void; onSuccess: () => void }) {
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [setupToken, setSetupToken] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit(event: FormEvent) {
@@ -152,7 +153,7 @@ function OperatorGate({ mode, error, onError, onSuccess }: { mode: "setup" | "lo
     if (!/^\d{6}$/.test(pin)) return onError("Enter a 6-digit PIN.");
     if (mode === "setup" && pin !== confirm) return onError("The PINs do not match.");
     setBusy(true);
-    try { await fetch(`/api/operator/${mode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) }).then(readJson); onSuccess(); }
+    try { await fetch(`/api/operator/${mode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, setupToken }) }).then(readJson); onSuccess(); }
     catch (caught) { onError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
@@ -163,6 +164,9 @@ function OperatorGate({ mode, error, onError, onSuccess }: { mode: "setup" | "lo
       <span className="micro-label">{mode === "setup" ? "FIRST-TIME SETUP" : "OPERATOR SIGN IN"}</span>
       <h1>{mode === "setup" ? "Secure your portal." : "Welcome back."}</h1>
       <p>{mode === "setup" ? "Create the private PIN you'll use to manage Haulway jobs." : "Enter your private operator PIN."}</p>
+      {mode === "setup" && <label>Private setup token
+        <input className="op-setup-token" type="password" autoComplete="off" value={setupToken} onChange={(event) => setSetupToken(event.target.value)} placeholder="From your environment settings" />
+      </label>}
       <label>{mode === "setup" ? "Create a 6-digit PIN" : "6-digit PIN"}
         <input className="op-code" type="password" inputMode="numeric" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, ""))} placeholder="••••••" />
       </label>

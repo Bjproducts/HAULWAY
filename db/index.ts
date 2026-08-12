@@ -17,6 +17,19 @@ export function getSupabase() {
   return client;
 }
 
+/* Auth clients are deliberately request-scoped. verifyOtp creates an auth
+   session in the client instance, so sharing one across server requests risks
+   session state bleeding between customers. */
+export function getSupabaseAuth() {
+  const url = process.env.SUPABASE_URL;
+  const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !publishableKey) throw new Error("Supabase Auth is not configured.");
+  return createClient(url, publishableKey, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    global: { headers: { "X-Client-Info": "haulway-auth-server" } },
+  });
+}
+
 export function getStorageBucketName() {
   return process.env.SUPABASE_STORAGE_BUCKET?.trim() || "job-media";
 }

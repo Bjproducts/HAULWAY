@@ -141,13 +141,15 @@ export function mapJob(job: JobRow) {
 }
 
 export async function addSystemMessage(jobId: string, body: string) {
+  const id = crypto.randomUUID();
   const { error } = await getSupabase().from("messages").insert({
-    id: crypto.randomUUID(),
+    id,
     job_id: jobId,
     sender: "system",
     body,
   });
   throwDatabaseError(error);
+  return id;
 }
 
 export async function updateJob(id: string, values: Record<string, string | number | boolean | null>) {

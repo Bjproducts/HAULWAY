@@ -1,11 +1,15 @@
 import { getSupabase, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
 import { canAccessJob, getJobDetails, getJobRow } from "@/lib/jobs";
-import { getErrorMessage, jsonError } from "@/lib/responses";
+import { internalError, jsonError } from "@/lib/responses";
+import { consumeRateLimit, guardMutation } from "@/lib/security";
+import { notifyJobSms } from "@/lib/sms";
 
 type Context = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, context: Context) {
+  const blocked = guardMutation(request);
+  if (blocked) return blocked;
   const session = await getApiSession(request);
   if (!session) return jsonError("Please sign in.", 401);
   try {
@@ -16,15 +20,22 @@ export async function POST(request: Request, context: Context) {
     const { body } = await request.json() as { body?: string };
     const message = body?.trim() ?? "";
     if (!message || message.length > 1000) return jsonError("Enter a message under 1,000 characters.");
+    const allowed = await consumeRateLimit(request, "job-message", 30, 5 * 60, session.subjectId);
+    if (!allowed) return jsonError("Too many messages. Wait a few minutes and try again.", 429);
+    const messageId = crypto.randomUUID();
     const { error } = await getSupabase().from("messages").insert({
-      id: crypto.randomUUID(),
+      id: messageId,
       job_id: id,
       sender: session.role,
       body: message,
     });
     throwDatabaseError(error);
+    if (session.role === "operator") {
+      const preview = Array.from(message.replace(/\s+/g, " ")).slice(0, 280).join("");
+      await notifyJobSms(job, messageId, `HAULWAY message: ${preview}`);
+    }
     return Response.json({ job: await getJobDetails(id) }, { status: 201 });
   } catch (error) {
-    return jsonError(getErrorMessage(error), 500);
+    return internalError(error, "jobs:message");
   }
 }

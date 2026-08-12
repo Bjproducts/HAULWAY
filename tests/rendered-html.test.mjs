@@ -4,18 +4,23 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("customer experience uses Supabase registration without SMS or card payments", async () => {
-  const [page, registration, jobs] = await Promise.all([
+test("customer access requires a Supabase SMS OTP before creating an app session", async () => {
+  const [page, registration, verification, jobs] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/api/auth/register/route.ts", root), "utf8"),
+    readFile(new URL("app/api/auth/verify/route.ts", root), "utf8"),
     readFile(new URL("app/api/jobs/route.ts", root), "utf8"),
   ]);
-  assert.match(page, /Name and number\. That&apos;s it\./);
+  assert.match(page, /SMS verified/);
+  assert.match(page, /one-time-code/);
   assert.match(page, /Interac e-Transfer/);
   assert.match(page, /Cash/);
-  assert.doesNotMatch(page, /2468|verification code|Stripe/i);
-  assert.match(registration, /getSupabase/);
-  assert.match(registration, /from\("customers"\)/);
+  assert.doesNotMatch(page, /2468|Stripe/i);
+  assert.match(registration, /signInWithOtp/);
+  assert.doesNotMatch(registration, /createSession/);
+  assert.match(verification, /verifyOtp/);
+  assert.match(verification, /type: "sms"/);
+  assert.match(verification, /createSession\("customer"/);
   assert.match(jobs, /Add at least one photo/);
 });
 
@@ -56,5 +61,36 @@ test("the app uses native Next.js and private Supabase Storage for Netlify", asy
   assert.doesNotMatch(packageSource, /vinext|wrangler|cloudflare/i);
   assert.match(exampleEnv, /SUPABASE_URL/);
   assert.match(exampleEnv, /SUPABASE_STORAGE_BUCKET/);
+  assert.doesNotMatch(exampleEnv, /sb_secret_|eyJ/);
+});
+
+test("security controls and durable request-update SMS are wired end to end", async () => {
+  const [security, actions, messages, uploads, sms, migration, operatorSetup, config, exampleEnv] = await Promise.all([
+    readFile(new URL("lib/security.ts", root), "utf8"),
+    readFile(new URL("app/api/jobs/[id]/route.ts", root), "utf8"),
+    readFile(new URL("app/api/jobs/[id]/messages/route.ts", root), "utf8"),
+    readFile(new URL("app/api/jobs/[id]/uploads/route.ts", root), "utf8"),
+    readFile(new URL("lib/sms.ts", root), "utf8"),
+    readFile(new URL("supabase/migrations/20260811000000_security_sms.sql", root), "utf8"),
+    readFile(new URL("app/api/operator/setup/route.ts", root), "utf8"),
+    readFile(new URL("next.config.ts", root), "utf8"),
+    readFile(new URL(".env.example", root), "utf8"),
+  ]);
+  assert.match(security, /Cross-site request blocked/);
+  assert.match(security, /consume_rate_limit/);
+  assert.match(actions, /Only an active booked job can be confirmed complete/);
+  assert.match(actions, /job must be completed before payment is recorded/i);
+  assert.match(actions, /notifyJobSms/);
+  assert.match(messages, /notifyJobSms/);
+  assert.match(uploads, /Reply STOP to opt out/);
+  assert.match(sms, /from\("sms_outbox"\)/);
+  assert.match(sms, /api\.twilio\.com/);
+  assert.match(migration, /create table if not exists public\.rate_limits/);
+  assert.match(migration, /create table if not exists public\.sms_outbox/);
+  assert.match(migration, /delete from public\.sessions where role = 'customer'/);
+  assert.match(migration, /customers_auth_user_id_key/);
+  assert.match(operatorSetup, /OPERATOR_SETUP_TOKEN/);
+  assert.match(config, /Content-Security-Policy/);
+  assert.match(exampleEnv, /TWILIO_API_KEY_SECRET/);
   assert.doesNotMatch(exampleEnv, /sb_secret_|eyJ/);
 });

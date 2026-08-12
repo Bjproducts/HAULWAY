@@ -1,7 +1,7 @@
 import { getStorage, getSupabase, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
 import { canAccessJob, getJobRow } from "@/lib/jobs";
-import { getErrorMessage, jsonError } from "@/lib/responses";
+import { internalError, jsonError } from "@/lib/responses";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -27,6 +27,6 @@ export async function GET(request: Request, context: Context) {
     if (!data) return jsonError("File not found.", 404);
     return Response.redirect(data.signedUrl, 302);
   } catch (error) {
-    return jsonError(getErrorMessage(error), 500);
+    return internalError(error, "media:read");
   }
 }

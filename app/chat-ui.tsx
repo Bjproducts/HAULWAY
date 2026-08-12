@@ -43,8 +43,12 @@ function dayLabel(date: Date) {
   return new Intl.DateTimeFormat("en-CA", { weekday: "short", month: "short", day: "numeric" }).format(date);
 }
 
+/* Matches the "2:45 PM" style the API stores for scheduled times — en-CA would
+   render "2:45 p.m." here and read inconsistently against the rest of the app. */
 function clockTime(date: Date) {
-  return new Intl.DateTimeFormat("en-CA", { hour: "numeric", minute: "2-digit" }).format(date);
+  const hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours % 12 === 0 ? 12 : hours % 12}:${minutes} ${hours < 12 ? "AM" : "PM"}`;
 }
 
 export function MessageList({ messages, mine, nameFor, pending }: {

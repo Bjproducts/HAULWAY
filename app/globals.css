@@ -221,6 +221,9 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .phone-field:focus-within { background: var(--surface); box-shadow: inset 0 0 0 1px var(--forest), 0 0 0 3px rgba(20,69,58,.1); }
 .phone-field input:focus { background: none; border-color: transparent; box-shadow: none; }
 .auth-sheet > small { display: block; margin-top: var(--s4); color: var(--ink-3); font-size: var(--t-xs); text-align: center; }
+.auth-code { text-align: center; font-family: var(--font-mono); font-size: 24px !important; font-weight: 800; letter-spacing: .34em; padding-left: calc(var(--s4) + .34em) !important; }
+.auth-code-actions { display: flex; justify-content: space-between; gap: var(--s3); margin: calc(var(--s2) * -1) 0 var(--s4); }
+.auth-code-actions button { min-height: 38px; padding: 0; border: 0; background: none; color: var(--forest); font-size: var(--t-xs); font-weight: 750; cursor: pointer; }
 
 /* ---------- app shell ---------- */
 .app-shell { position: fixed; inset: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto; background: var(--canvas); }
@@ -671,6 +674,8 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .op-gate-sheet label { display: grid; gap: var(--s2); margin-bottom: var(--s4); color: var(--ink-2); font-size: var(--t-sm); font-weight: 700; }
 .op-code { width: 100%; height: 60px; border: 1px solid transparent; border-radius: var(--r-md); background: var(--sunken); color: var(--ink); text-align: center; font-family: var(--font-mono); font-size: 24px; letter-spacing: .5em; padding-left: .5em; }
 .op-code:focus { outline: 0; background: var(--surface); border-color: var(--forest); box-shadow: 0 0 0 3px rgba(20,69,58,.1); }
+.op-setup-token { width: 100%; min-height: 54px; padding: 0 var(--s4); border: 1px solid transparent; border-radius: var(--r-md); background: var(--sunken); font-family: var(--font-mono); font-size: var(--t-sm); }
+.op-setup-token:focus { outline: 0; background: var(--surface); border-color: var(--forest); box-shadow: 0 0 0 3px rgba(20,69,58,.1); }
 .op-gate-sheet > small { display: block; margin-top: var(--s4); color: var(--ink-3); font-size: var(--t-xs); text-align: center; }
 .op-gate-trust { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: var(--s3); color: var(--ink-3); font-size: var(--t-2xs); font-weight: 750; }
 
