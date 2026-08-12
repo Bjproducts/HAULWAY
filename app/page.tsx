@@ -341,9 +341,11 @@ function HomeTab({ customer, activeCount, openRequests, draft, onDiscardDraft, o
         </div>
       </div>}
 
+      {/* The live-haul strip above already states the active count — repeating it
+          here was duplicate information and the extra line pushed short screens
+          into scrolling. */}
       <div className="home-foot enter" style={{ animationDelay: ".72s" }}>
         <span>Edmonton</span><span>Photos required</span><span>Quote first</span>
-        {activeCount > 0 && <em>{activeCount} active haul{activeCount > 1 ? "s" : ""}</em>}
       </div>
     </section>
   );
