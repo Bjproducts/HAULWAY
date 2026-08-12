@@ -96,9 +96,12 @@ test("security controls and durable request-update SMS are wired end to end", as
 });
 
 test("customer requests stay progress-first with optional chat and swipe completion", async () => {
-  const [page, styles] = await Promise.all([
+  const [page, styles, actions, ratingMigration, jobsData] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("app/api/jobs/[id]/route.ts", root), "utf8"),
+    readFile(new URL("supabase/migrations/20260812000000_customer_ratings.sql", root), "utf8"),
+    readFile(new URL("lib/jobs.ts", root), "utf8"),
   ]);
   assert.match(page, /const \[showChat, setShowChat\] = useState\(false\)/);
   assert.match(page, /Haul booked ✓/);
@@ -110,4 +113,15 @@ test("customer requests stay progress-first with optional chat and swipe complet
   assert.match(styles, /\.swipe-confirm/);
   assert.match(styles, /touch-action: none/);
   assert.match(styles, /prefers-reduced-motion/);
+  assert.match(styles, /\.track-body[^}]*overflow: hidden/);
+  assert.match(page, /setTimeout\(\(\) => dismiss\.current\(update\.id\), 4500\)/);
+  assert.match(page, /How was your haul\?/);
+  assert.match(page, /Not now/);
+  assert.match(page, /onHome\(\)/);
+  assert.match(actions, /body\.action === "rate_job"/);
+  assert.match(actions, /Choose a rating from 1 to 5 stars/);
+  assert.match(actions, /Customer rated this haul/);
+  assert.match(jobsData, /fallbackRating/);
+  assert.match(ratingMigration, /customer_rating smallint/);
+  assert.match(ratingMigration, /rating_skipped boolean/);
 });

@@ -52,6 +52,8 @@ export type Job = {
   paymentStatus: "unpaid" | "paid";
   customerConfirmed: boolean;
   operatorConfirmed: boolean;
+  customerRating: number | null;
+  ratingSkipped: boolean;
   createdAt: string;
   updatedAt: string;
   /* Only present on the list endpoint — powers the "new activity" dot. */

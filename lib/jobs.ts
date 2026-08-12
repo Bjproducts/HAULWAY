@@ -27,6 +27,9 @@ export type JobRow = {
   payment_status: "unpaid" | "paid";
   customer_confirmed: boolean;
   operator_confirmed: boolean;
+  /* Optional until the customer-ratings migration reaches every environment. */
+  customer_rating?: number | null;
+  rating_skipped?: boolean;
   upload_complete: boolean;
   created_at: string;
   updated_at: string;
@@ -83,8 +86,12 @@ export async function getJobDetails(id: string) {
   throwDatabaseError(messagesResult.error);
   const media = (mediaResult.data ?? []) as MediaRow[];
   const messages = (messagesResult.data ?? []) as MessageRow[];
+  const recordedRating = [...messages].reverse().find((message) => message.sender === "system" && /^Customer (?:rated this haul|skipped the optional rating)/.test(message.body));
+  const fallbackRating = recordedRating?.body.match(/^Customer rated this haul ([1-5])\/5\.$/);
   return {
     ...mapJob(job),
+    customerRating: job.customer_rating ?? (fallbackRating ? Number(fallbackRating[1]) : null),
+    ratingSkipped: Boolean(job.rating_skipped || recordedRating?.body === "Customer skipped the optional rating."),
     media: media.map((item) => ({
       id: item.id,
       filename: item.filename,
@@ -135,6 +142,8 @@ export function mapJob(job: JobRow) {
     paymentStatus: job.payment_status,
     customerConfirmed: job.customer_confirmed,
     operatorConfirmed: job.operator_confirmed,
+    customerRating: job.customer_rating ?? null,
+    ratingSkipped: job.rating_skipped ?? false,
     createdAt: job.created_at,
     updatedAt: job.updated_at,
   };

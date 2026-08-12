@@ -32,7 +32,7 @@ export async function PATCH(request: Request, context: Context) {
     const job = await getJobRow(id);
     if (!job) return jsonError("Job not found.", 404);
     if (!canAccessJob(session, job)) return jsonError("You cannot access this job.", 403);
-    const body = await request.json() as { action?: string; amount?: number; method?: string; eta?: string };
+    const body = await request.json() as { action?: string; amount?: number; method?: string; eta?: string; rating?: number; skip?: boolean };
     if (job.status === "cancelled") return jsonError("This request was cancelled.", 409);
     let smsEvent: { id: string; body: string } | null = null;
 
@@ -132,6 +132,26 @@ export async function PATCH(request: Request, context: Context) {
           id: await addSystemMessage(id, `${confirmer} confirmed the job is complete.`),
           body: `HAULWAY update: ${confirmer} confirmed the job is complete. The other side still needs to confirm.`,
         };
+      }
+    } else if (body.action === "rate_job") {
+      if (session.role !== "customer") return jsonError("Customer access required.", 403);
+      if (job.status !== "completed") return jsonError("A rating can only be left after the haul is complete.");
+      if (!job.payment_method) return jsonError("Choose a payment method before finishing your haul.");
+      const details = await getJobDetails(id);
+      if (details?.customerRating != null || details?.ratingSkipped) return jsonError("You already finished the rating step.", 409);
+      const rating = Number(body.rating);
+      if (body.skip !== true && (!Number.isInteger(rating) || rating < 1 || rating > 5)) return jsonError("Choose a rating from 1 to 5 stars.");
+      const values: Record<string, string | number | boolean | null> = body.skip === true
+        ? { rating_skipped: true, rated_at: new Date().toISOString() }
+        : { customer_rating: rating, rating_skipped: false, rated_at: new Date().toISOString() };
+      try {
+        await updateJob(id, values);
+      } catch (error) {
+        /* Keep the release functional while the additive ratings migration is
+           rolling out. The existing messages table is durable Supabase storage;
+           once migrated, new ratings use dedicated queryable columns. */
+        if (!(error instanceof Error) || !/customer_rating|rating_skipped|rated_at|schema cache/i.test(error.message)) throw error;
+        await addSystemMessage(id, body.skip === true ? "Customer skipped the optional rating." : `Customer rated this haul ${rating}/5.`);
       }
     } else {
       return jsonError("Unknown action.");

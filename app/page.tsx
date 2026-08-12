@@ -139,6 +139,13 @@ export default function CustomerApp() {
     if (next !== "requests") setOpenJobId(null);
   }
 
+  function returnHome() {
+    setNotice("");
+    setOpenJobId(null);
+    setTab("home");
+    history.replaceState({ hw: true }, "");
+  }
+
   /* Every push is matched by a history entry, so in-app back and hardware back
      stay in step — the back buttons just call history.back(). */
   function goDeeper() { history.pushState({ hw: true }, ""); }
@@ -227,9 +234,9 @@ export default function CustomerApp() {
             setService(picked); setScreen("request"); goDeeper();
           }}
         />}
-        {/* Opening a request shows either "waiting to be approved" or its chat. */}
+        {/* A request opens on progress; chat remains a secondary destination. */}
         {tab === "requests" && (openJobId
-          ? <RequestView key={openJobId} jobId={openJobId} banner={notice} seenCount={seen[openJobId] ?? 0} onBack={() => history.back()} onChanged={refreshJobs} onSeen={markSeen} />
+          ? <RequestView key={openJobId} jobId={openJobId} banner={notice} seenCount={seen[openJobId] ?? 0} onBack={() => history.back()} onHome={returnHome} onChanged={refreshJobs} onSeen={markSeen} />
           : <RequestsTab jobs={jobs} notice={notice} unread={unread} onOpen={openJob} onNew={() => goTab("home")} />)}
       </main>
 
@@ -245,7 +252,7 @@ function UpdateToast({ update, onOpen, onDismiss }: { update: InAppUpdate; onOpe
   const dismiss = useRef(onDismiss);
   useEffect(() => { dismiss.current = onDismiss; }, [onDismiss]);
   useEffect(() => {
-    const timer = window.setTimeout(() => dismiss.current(update.id), 1000);
+    const timer = window.setTimeout(() => dismiss.current(update.id), 4500);
     return () => window.clearTimeout(timer);
   }, [update.id]);
 
@@ -391,15 +398,16 @@ function JobJourney({ status }: { status: string }) {
   </ol>;
 }
 
-/* ---------- One request: waiting for approval, then chat ---------- */
+/* ---------- One request: waiting, tracking, and optional chat ---------- */
 
-function RequestView({ jobId, banner, seenCount, onBack, onChanged, onSeen }: { jobId: string; banner?: string; seenCount: number; onBack: () => void; onChanged: (silentJobId?: string) => Promise<Job[]>; onSeen: (id: string, count: number) => void }) {
+function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSeen }: { jobId: string; banner?: string; seenCount: number; onBack: () => void; onHome: () => void; onChanged: (silentJobId?: string) => Promise<Job[]>; onSeen: (id: string, count: number) => void }) {
   const [job, setJob] = useState<JobDetails | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [ratingExit, setRatingExit] = useState<"rated" | "skipped" | null>(null);
   /* Tracking is the request's home. Chat stays one intentional tap away so the
      most important answer — what is happening and when — always comes first. */
   const [showChat, setShowChat] = useState(false);
@@ -435,6 +443,17 @@ function RequestView({ jobId, banner, seenCount, onBack, onChanged, onSeen }: { 
       setError(errorMessage(caught));
       return false;
     } finally { setBusy(false); }
+  }
+
+  async function finishRating(kind: "rated" | "skipped", rating?: number) {
+    setRatingExit(kind);
+    const succeeded = await action("rate_job", kind === "rated" ? { rating } : { skip: true });
+    if (!succeeded) {
+      setRatingExit(null);
+      return;
+    }
+    await wait(700);
+    onHome();
   }
 
   async function cancel() {
@@ -540,6 +559,7 @@ function RequestView({ jobId, banner, seenCount, onBack, onChanged, onSeen }: { 
     in_progress: "Heading your way",
     completed: "Finished by both sides",
   } as Record<string, string>)[job.status] ?? statusLabel(job.status);
+  const ratingPending = job.status === "completed" && job.customerRating == null && !job.ratingSkipped;
 
   return <section className={`track-page status-${job.status}`}>
     <div className="track-nav">
@@ -559,7 +579,9 @@ function RequestView({ jobId, banner, seenCount, onBack, onChanged, onSeen }: { 
         {job.status !== "completed" ? <TruckScene /> : <span className="complete-orbit" aria-hidden="true"><i>✓</i></span>}
         <span className="track-kicker"><i aria-hidden="true" /> LIVE REQUEST</span>
         <h2>{headline}</h2>
-        <p>{job.status === "completed" ? "Both you and Haulway confirmed the work. One last step: settle your payment." : "Follow every step here. Timing and status update automatically."}</p>
+        <p>{job.status === "completed"
+          ? !job.paymentMethod ? "Both sides confirmed the work. Choose how you'll pay to wrap up." : ratingPending ? "Payment is set. Rate your experience or skip it—we'll take you home either way." : "Everything is wrapped up. Thanks for choosing Haulway."
+          : "Follow every step here. Timing and status update automatically."}</p>
       </div>
 
       <section className="journey-card enter" style={{ animationDelay: ".08s" }}>
@@ -601,17 +623,21 @@ function RequestView({ jobId, banner, seenCount, onBack, onChanged, onSeen }: { 
           </div>
         </section>}
 
-        {job.status === "completed" && job.paymentMethod === "interac" && <section className="request-action payment-detail">
-          <small>SEND YOUR INTERAC E-TRANSFER TO</small>
-          <a className="interac-email" href={`mailto:${INTERAC_EMAIL}`}>{INTERAC_EMAIL}</a>
-          <span className="interac-amount">{job.quoteCents ? money(job.quoteCents) : ""}</span>
-          <em className={job.paymentStatus}>{job.paymentStatus === "paid" ? "Received ✓" : "Waiting on payment"}</em>
-        </section>}
+        {job.status === "completed" && job.paymentMethod && (ratingPending || ratingExit) && <RatingPrompt
+          busy={busy}
+          exit={ratingExit}
+          paymentMethod={job.paymentMethod}
+          paymentStatus={job.paymentStatus}
+          amount={job.quoteCents}
+          onRate={(rating) => void finishRating("rated", rating)}
+          onSkip={() => void finishRating("skipped")}
+        />}
 
-        {job.status === "completed" && job.paymentMethod === "cash" && <p className="payment-line payment-summary">
-          Paying {job.quoteCents ? money(job.quoteCents) : ""} in cash, directly to the driver.
-          <em className={job.paymentStatus}>{job.paymentStatus === "paid" ? "Received ✓" : "Not marked paid"}</em>
-        </p>}
+        {job.status === "completed" && job.paymentMethod && !ratingPending && !ratingExit && <section className="completion-summary">
+          <span aria-hidden="true">✓</span>
+          <div><small>ALL WRAPPED UP</small><strong>Thanks for choosing Haulway.</strong><p>{paymentSummary(job.paymentMethod, job.paymentStatus, job.quoteCents)}</p></div>
+          <button className="hw-primary" onClick={onHome}>Back to home</button>
+        </section>}
 
         {error && <p className="chat-error">{error}</p>}
 
@@ -624,6 +650,43 @@ function RequestView({ jobId, banner, seenCount, onBack, onChanged, onSeen }: { 
       </div>
     </div>
     {cancelSheet}
+  </section>;
+}
+
+function RatingPrompt({ busy, exit, paymentMethod, paymentStatus, amount, onRate, onSkip }: {
+  busy: boolean;
+  exit: "rated" | "skipped" | null;
+  paymentMethod: "interac" | "cash";
+  paymentStatus: "unpaid" | "paid";
+  amount: number | null;
+  onRate: (rating: number) => void;
+  onSkip: () => void;
+}) {
+  const [rating, setRating] = useState(0);
+
+  if (exit) return <section className="rating-card rating-finish" role="status">
+    <span className="rating-celebrate" aria-hidden="true">{exit === "rated" ? "★" : "✓"}</span>
+    <div><small>{busy ? "SAVING" : "ALL SET"}</small><strong>{exit === "rated" ? "Thanks for the feedback." : "No problem at all."}</strong><p>{busy ? "Wrapping up your haul…" : "Taking you home…"}</p></div>
+  </section>;
+
+  return <section className="rating-card" aria-labelledby="rating-title">
+    <div className="rating-heading">
+      <span aria-hidden="true">★</span>
+      <div><small>ONE LAST THING</small><strong id="rating-title">How was your haul?</strong><p>Your feedback helps every pickup feel better.</p></div>
+    </div>
+    <div className={`rating-payment ${paymentStatus}`}>
+      <span><small>{paymentStatus === "paid" ? "PAYMENT RECEIVED" : "PAYMENT METHOD"}</small><strong>{paymentMethod === "interac" ? "Interac e-Transfer" : "Cash"}{amount ? ` · ${money(amount)}` : ""}</strong></span>
+      {paymentMethod === "interac" && paymentStatus !== "paid"
+        ? <a href={`mailto:${INTERAC_EMAIL}`}>{INTERAC_EMAIL}</a>
+        : <em>{paymentStatus === "paid" ? "Received ✓" : "Pay your driver directly"}</em>}
+    </div>
+    <div className="rating-stars" role="group" aria-label="Rate your haul from 1 to 5 stars">
+      {[1, 2, 3, 4, 5].map((star) => <button key={star} type="button" disabled={busy} className={star <= rating ? "selected" : ""} aria-label={`${star} star${star === 1 ? "" : "s"}`} aria-pressed={star === rating} onClick={() => setRating(star)}>{star <= rating ? "★" : "☆"}</button>)}
+    </div>
+    <div className="rating-actions">
+      <button className="rating-skip" type="button" disabled={busy} onClick={onSkip}>Not now</button>
+      <button className="hw-primary" type="button" disabled={busy || rating === 0} onClick={() => onRate(rating)}>Send rating</button>
+    </div>
   </section>;
 }
 
@@ -1141,6 +1204,11 @@ function writeSeen(value: Record<string, number>) {
   try { localStorage.setItem(SEEN_KEY, JSON.stringify(value)); } catch { /* storage unavailable */ }
 }
 function wait(ms: number) { return new Promise((resolve) => window.setTimeout(resolve, ms)); }
+function paymentSummary(method: "interac" | "cash", status: "unpaid" | "paid", amount: number | null) {
+  const price = amount ? ` ${money(amount)}` : "";
+  if (status === "paid") return `${price.trim() || "Payment"} received by Haulway.`;
+  return method === "interac" ? `Send${price} to ${INTERAC_EMAIL}.` : `Pay${price} directly to your driver.`;
+}
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function localDate() { const date = new Date(); const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 10); }
 function displayTime(value: string) {
