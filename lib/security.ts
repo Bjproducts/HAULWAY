@@ -3,12 +3,30 @@ import { jsonError } from "@/lib/responses";
 
 const JSON_TYPES = ["application/json", "application/ld+json"];
 
+/* Behind a proxy (Netlify, and any CDN in front of it) request.url reports the
+   internal origin, not the address the browser actually used, so the public host
+   has to come from the forwarded headers instead. */
+function publicHost(request: Request) {
+  const forwarded = request.headers.get("x-forwarded-host")?.split(",", 1)[0].trim();
+  const host = forwarded || request.headers.get("host") || new URL(request.url).host;
+  return host.toLowerCase();
+}
+
 export function guardMutation(request: Request, options: { json?: boolean; maxBytes?: number } = {}) {
-  const target = new URL(request.url);
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");
-  if (origin && origin !== target.origin) return jsonError("Cross-site request blocked.", 403);
-  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") return jsonError("Cross-site request blocked.", 403);
+
+  /* Sec-Fetch-Site is set by the browser and cannot be forged from script, so it
+     is authoritative where present. Origin is the fallback for the few clients
+     that omit it, compared on host alone — the proxy terminates TLS, so the
+     scheme it reports internally is not the one the browser saw. */
+  if (fetchSite) {
+    if (fetchSite !== "same-origin" && fetchSite !== "none") return jsonError("Cross-site request blocked.", 403);
+  } else if (origin) {
+    let originHost = "";
+    try { originHost = new URL(origin).host.toLowerCase(); } catch { return jsonError("Cross-site request blocked.", 403); }
+    if (originHost !== publicHost(request)) return jsonError("Cross-site request blocked.", 403);
+  }
 
   if (options.json !== false) {
     const contentType = request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() ?? "";
