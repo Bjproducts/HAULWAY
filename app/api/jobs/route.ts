@@ -229,13 +229,23 @@ function normalizeMedia(value: MediaInput) {
   return { filename, contentType, sizeBytes };
 }
 
+/* Haulway serves Edmonton, so "today" means today there — not in UTC. Judging it
+   in UTC rejected the customer's own date every evening after 6pm local, when UTC
+   has already rolled over to tomorrow. */
+const SERVICE_TIMEZONE = "America/Edmonton";
+
+function serviceToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: SERVICE_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
+
 function validScheduledDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const selected = new Date(`${value}T12:00:00Z`);
-  if (Number.isNaN(selected.getTime())) return false;
-  const now = new Date();
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  return selected.getTime() >= today && selected.getTime() <= today + 366 * 24 * 60 * 60 * 1000;
+  const selected = Date.parse(`${value}T12:00:00Z`);
+  const today = Date.parse(`${serviceToday()}T12:00:00Z`);
+  if (Number.isNaN(selected) || Number.isNaN(today)) return false;
+  return selected >= today && selected <= today + 366 * 24 * 60 * 60 * 1000;
 }
 
 function safeExtension(filename: string) {

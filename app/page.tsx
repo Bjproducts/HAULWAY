@@ -8,7 +8,7 @@ import type { Customer, Job, JobDetails } from "@/lib/contracts";
 import { BUILDING_TYPES, INTERAC_EMAIL, MAX_OPEN_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
 import { Composer, MessageList, useStickyScroll } from "./chat-ui";
 
-type Screen = "boot" | "auth" | "app" | "request" | "sent";
+type Screen = "boot" | "auth" | "app" | "request";
 type Tab = "home" | "requests";
 type Service = "junk" | "move";
 type Upload = { id: string; file: File; url: string; kind: "image" | "video" };
@@ -114,8 +114,8 @@ export default function CustomerApp() {
     function onPop() {
       const { screen: s, tab: t, openJobId: j } = nav.current;
       /* Leaving the booking flow: pick up whatever it saved so Home can offer a resume. */
-      if (s === "request" || s === "sent") { setScreen("app"); setDraft(readDraft()); return; }
-      if (j) { setOpenJobId(null); return; }
+      if (s === "request") { setScreen("app"); setDraft(readDraft()); return; }
+      if (j) { setOpenJobId(null); setNotice(""); return; }
       if (t !== "home") { setTab("home"); return; }
       history.back();
     }
@@ -187,17 +187,16 @@ export default function CustomerApp() {
       service={service}
       draft={draft && draft.service === service ? draft : null}
       onCancel={() => history.back()}
-      onCreated={async () => {
+      /* Straight onto the haul they just booked. Showing the whole list here made
+         them hunt for the thing they created one second ago, and a separate
+         "request sent" screen only repeated what this page already says. */
+      onCreated={async (jobId) => {
         clearDraft(); setDraft(null);
-        setScreen("sent");
+        setNotice("Booked. We're finding you a driver.");
+        setTab("requests"); setOpenJobId(jobId); setScreen("app");
         await refreshJobs();
       }}
     />;
-  }
-  /* Straight to the requests list — the customer just filled this in, so there is no
-     reason to show their own photos back to them. */
-  if (screen === "sent") {
-    return <RequestSent onDone={() => { setTab("requests"); setOpenJobId(null); setNotice(""); setScreen("app"); void refreshJobs(); }} />;
   }
   if (!customer) return <Splash />;
 
@@ -239,7 +238,7 @@ export default function CustomerApp() {
         />}
         {/* Opening a request shows either "waiting to be approved" or its chat. */}
         {tab === "requests" && (openJobId
-          ? <RequestView key={openJobId} jobId={openJobId} onBack={() => history.back()} onChanged={refreshJobs} onSeen={markSeen} />
+          ? <RequestView key={openJobId} jobId={openJobId} banner={notice} onBack={() => history.back()} onChanged={refreshJobs} onSeen={markSeen} />
           : <RequestsTab jobs={jobs} notice={notice} unread={unread} onOpen={openJob} onNew={() => goTab("home")} />)}
       </main>
 
@@ -400,14 +399,17 @@ function JobJourney({ status }: { status: string }) {
 
 /* ---------- One request: waiting for approval, then chat ---------- */
 
-function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBack: () => void; onChanged: (silentJobId?: string) => Promise<Job[]>; onSeen: (id: string, count: number) => void }) {
+function RequestView({ jobId, banner, onBack, onChanged, onSeen }: { jobId: string; banner?: string; onBack: () => void; onChanged: (silentJobId?: string) => Promise<Job[]>; onSeen: (id: string, count: number) => void }) {
   const [job, setJob] = useState<JobDetails | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [showTracking, setShowTracking] = useState(true);
+  /* Chat is the working surface once a driver is on it, and the ETA is already
+     pinned above the thread. Opening the truck screen every single visit made
+     people tap past the same page to reach the conversation. */
+  const [showTracking, setShowTracking] = useState(false);
   const [pending, setPending] = useState<string[]>([]);
   const { ref: chatScrollRef, pinned: chatPinned, jump: jumpToLatest } = useStickyScroll((job?.messages.length ?? 0) + pending.length);
 
@@ -483,6 +485,7 @@ function RequestView({ jobId, onBack, onChanged, onSeen }: { jobId: string; onBa
   if (job.status === "requested") return <section className="waiting-page">
     <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button><span className="status-pill requested">{statusLabel(job.status)}</span></div>
     <div className="waiting-body">
+      {banner && <p className="booked-banner" role="status">✓ {banner}</p>}
       <span className="radar" aria-hidden="true"><i /><i /><i /><b>🚚</b></span>
       <JobJourney status={job.status} />
       <h2>Looking for a driver</h2>
@@ -613,24 +616,6 @@ function BookingLoader({ done, total }: { done: number; total: number }) {
   </main>;
 }
 
-function RequestSent({ onDone }: { onDone: () => void }) {
-  /* Held in a ref so the parent's 5s job poll re-rendering us never restarts the timer. */
-  const done = useRef(onDone);
-  useEffect(() => { done.current = onDone; }, [onDone]);
-  useEffect(() => {
-    const timer = window.setTimeout(() => done.current(), 5000);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  return <main className="sent-screen">
-    <span className="radar big" aria-hidden="true"><i /><i /><i /><b>🚚</b></span>
-    <h1>Looking for a driver</h1>
-    <p>Your haul is booked and out to our drivers. We&apos;ll notify you the moment one takes it.</p>
-    <span className="sent-next"><i aria-hidden="true">01</i><span><strong>Next: a driver accepts</strong><small>We&apos;ll open live ETA tracking automatically.</small></span></span>
-    <button className="hw-primary wide" onClick={() => done.current()}>View my requests<span aria-hidden="true">→</span></button>
-  </main>;
-}
-
 /* ---------- Boot + auth ---------- */
 
 function Splash() {
@@ -709,7 +694,7 @@ function Registration({ otpRequired, onRegistered }: { otpRequired: boolean; onR
 
 /* ---------- Request flow ---------- */
 
-function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service; draft: Draft | null; onCancel: () => void; onCreated: () => void | Promise<void> }) {
+function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service; draft: Draft | null; onCancel: () => void; onCreated: (jobId: string) => void | Promise<void> }) {
   /* Photos never survive, so a restored draft always resumes on step 1. */
   const [step, setStep] = useState(1);
   const [restored, setRestored] = useState(Boolean(draft));
@@ -804,7 +789,7 @@ function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service
       if (failed) throw failed.reason;
       await fetch(`/api/jobs/${data.jobId}/uploads`, { method: "POST" }).then(readJson);
       uploads.forEach((upload) => URL.revokeObjectURL(upload.url));
-      await onCreated();
+      await onCreated(data.jobId);
     } catch (caught) {
       if (pendingJobId) void fetch(`/api/jobs/${pendingJobId}/uploads`, { method: "DELETE" });
       setError(errorMessage(caught));
