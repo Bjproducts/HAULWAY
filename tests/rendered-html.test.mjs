@@ -104,7 +104,14 @@ test("customer requests stay progress-first with optional chat and swipe complet
     readFile(new URL("lib/jobs.ts", root), "utf8"),
   ]);
   assert.match(page, /const \[showChat, setShowChat\] = useState\(false\)/);
-  assert.match(page, /Haul booked ✓/);
+  /* Progress leads the order page: the stepper must render above the map, which
+     is the guarantee this test exists for. Asserting on header copy instead tied
+     the check to a string the design no longer shows. */
+  const trackBody = page.slice(page.indexOf('<div className="track-body">'));
+  assert.ok(
+    trackBody.indexOf("journey-card") > -1 && trackBody.indexOf("journey-card") < trackBody.indexOf("map-card"),
+    "haul progress should render before the map on the order page",
+  );
   assert.match(page, /ESTIMATED ARRIVAL/);
   assert.match(page, /Message Haulway/);
   assert.match(page, /function SwipeToConfirm/);

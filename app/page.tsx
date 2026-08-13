@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
 import { BUILDING_TYPES, INTERAC_EMAIL, MAX_OPEN_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
 import { Composer, MessageList, useStickyScroll } from "./chat-ui";
+import { errorMessage, readJson } from "./http";
 
 type Screen = "boot" | "auth" | "app" | "request";
 type Tab = "home" | "requests";
@@ -387,6 +388,33 @@ function JobRow({ job, unread, onOpen }: { job: Job; unread: boolean; onOpen: (i
   </button>;
 }
 
+/* A stylised route rather than a live map: tiles need a paid provider key, and
+   the exact geometry is not what the customer is reading here — they want to see
+   that a driver is en route. Swapping in real tiles later is contained to this. */
+function RouteMap({ moving }: { moving: boolean }) {
+  return <div className="route-map" aria-hidden="true">
+    <svg viewBox="0 0 340 190" preserveAspectRatio="xMidYMid slice">
+      <rect className="rm-bg" x="0" y="0" width="340" height="190" />
+      <g className="rm-parks">
+        <rect x="12" y="18" width="52" height="34" rx="6" />
+        <rect x="250" y="14" width="60" height="30" rx="6" />
+        <rect x="28" y="132" width="70" height="40" rx="6" />
+        <rect x="228" y="126" width="86" height="46" rx="6" />
+      </g>
+      <g className="rm-roads">
+        <path d="M0 62 H340 M0 118 H340 M84 0 V190 M196 0 V190 M276 0 V190" />
+      </g>
+      <path className="rm-route" d="M62 46 V96 H150 V70 H196 V132 H262" />
+      <circle className="rm-origin-halo" cx="62" cy="46" r="11" />
+      <circle className="rm-origin" cx="62" cy="46" r="5" />
+      <g className={`rm-truck ${moving ? "moving" : ""}`}>
+        <circle cx="262" cy="132" r="17" />
+        <text x="262" y="139" textAnchor="middle">🚚</text>
+      </g>
+    </svg>
+  </div>;
+}
+
 function JobJourney({ status }: { status: string }) {
   const stages = ["Requested", "Driver found", "Quote", "Haul booked", "Complete"];
   const reached = status === "requested" ? 1 : status === "approved" ? 2 : status === "quoted" ? 3 : status === "accepted" || status === "in_progress" ? 4 : 5;
@@ -554,13 +582,6 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
     in_progress: "Your driver is on the way.",
     completed: "Your haul is complete.",
   } as Record<string, string>)[job.status] ?? "Your haul is moving.";
-  const progressNote = ({
-    approved: "Driver checked in",
-    quoted: "Price ready to review",
-    accepted: "Haul booked ✓",
-    in_progress: "Heading your way",
-    completed: "Finished by both sides",
-  } as Record<string, string>)[job.status] ?? statusLabel(job.status);
   const ratingPending = job.status === "completed" && job.customerRating == null && !job.ratingSkipped;
 
   return <section className={`track-page status-${job.status}`}>
@@ -577,30 +598,47 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
     </div>
 
     <div className="track-body">
-      <div className="track-hero enter">
-        {job.status !== "completed" ? <TruckScene /> : <span className="complete-orbit" aria-hidden="true"><i>✓</i></span>}
-        <span className="track-kicker"><i aria-hidden="true" /> LIVE REQUEST</span>
-        <h2>{headline}</h2>
-        <p>{job.status === "completed"
-          ? !job.paymentMethod ? "Both sides confirmed the work. Choose how you'll pay to wrap up." : ratingPending ? "Payment is set. Rate your experience or skip it—we'll take you home either way." : "Everything is wrapped up. Thanks for choosing Haulway."
-          : "Follow every step here. Timing and status update automatically."}</p>
-      </div>
-
-      <section className="journey-card enter" style={{ animationDelay: ".08s" }}>
-        <header><span>HAUL PROGRESS</span><strong>{progressNote}</strong></header>
+      {/* Progress first: "where is my haul" is the question this page exists to
+          answer, so it leads rather than sitting under a decorative hero. */}
+      <section className="journey-card enter">
         <JobJourney status={job.status} />
       </section>
 
-      {job.status !== "completed" && <div className="eta-block enter" style={{ animationDelay: ".14s" }}>
-        <span className="eta-copy"><small>ESTIMATED ARRIVAL</small><strong>{job.eta ?? "Confirming now…"}</strong></span>
-        <span className="eta-live"><i aria-hidden="true" />Updates automatically</span>
-      </div>}
+      {job.status !== "completed" ? <section className="map-card enter" style={{ animationDelay: ".08s" }}>
+        <RouteMap moving={job.status === "in_progress" || job.status === "accepted"} />
+        <div className="eta-block">
+          <small>ESTIMATED ARRIVAL</small>
+          <strong>{job.eta ?? "Confirming now…"}</strong>
+          <span className="eta-live"><i aria-hidden="true" />Updates automatically</span>
+        </div>
+      </section> : <section className="map-card complete enter" style={{ animationDelay: ".08s" }}>
+        <div className="eta-block">
+          <span className="complete-orbit" aria-hidden="true"><i>✓</i></span>
+          <strong>{headline}</strong>
+          <span className="eta-live done">{!job.paymentMethod ? "Choose how you'll pay to wrap up." : "Everything is wrapped up."}</span>
+        </div>
+      </section>}
 
-      <div className="track-facts enter" style={{ animationDelay: ".2s" }}>
+      <div className="track-split enter" style={{ animationDelay: ".14s" }}>
         <div><small>SCHEDULED</small><strong>{shortDate(job.scheduledDate)}</strong><span>{displayTime(job.scheduledTime)}</span></div>
-        <div><small>{job.dropoff ? "ROUTE" : "PICKUP"}</small><strong>{job.pickup}</strong>{job.dropoff && <span>to {job.dropoff}</span>}</div>
-        {job.quoteCents != null && <div><small>QUOTE</small><strong>{money(job.quoteCents)}</strong><span>{job.status === "quoted" ? "Awaiting your approval" : "Confirmed"}</span></div>}
+        <div className="track-split-main">
+          <small>PICKUP</small>
+          <strong>{job.pickupUnit ? `${job.pickupUnit}-${job.pickup}` : job.pickup}</strong>
+          <span>{[job.pickupBuilding, job.pickupStairs].filter(Boolean).join(" · ") || "Edmonton, AB"}</span>
+        </div>
       </div>
+
+      <section className="route-card enter" style={{ animationDelay: ".2s" }}>
+        <div className="route-stop">
+          <span className="route-pin pickup" aria-hidden="true" />
+          <span><small>Pickup</small><strong>{job.pickupUnit ? `${job.pickupUnit}-${job.pickup}` : job.pickup}</strong><em>{[job.pickupBuilding, job.pickupStairs].filter(Boolean).join(" · ") || "Edmonton, AB"}</em></span>
+        </div>
+        {job.dropoff && <div className="route-stop">
+          <span className="route-pin dropoff" aria-hidden="true" />
+          <span><small>Drop-off</small><strong>{job.dropoffUnit ? `${job.dropoffUnit}-${job.dropoff}` : job.dropoff}</strong><em>{[job.dropoffBuilding, job.dropoffStairs].filter(Boolean).join(" · ") || "Edmonton, AB"}</em></span>
+        </div>}
+        {job.fragile && <p className="route-flag">Handle with care — fragile items</p>}
+      </section>
 
       <div className="track-actions enter" style={{ animationDelay: ".26s" }}>
         {job.status === "quoted" && job.quoteCents != null && <section className="request-action quote">
@@ -643,12 +681,29 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
 
         {error && <p className="chat-error">{error}</p>}
 
-        <button className="message-entry" onClick={() => setShowChat(true)}>
-          <span className="message-entry-icon" aria-hidden="true">◇</span>
-          <span><strong>Message Haulway</strong><small>Questions about access or timing?</small></span>
-          {newMessages > 0 && <b>{newMessages > 9 ? "9+" : newMessages}</b>}
-          <i aria-hidden="true">→</i>
-        </button>
+        {/* Sending from here keeps the customer on the page they were reading
+            instead of pushing them into a separate screen to say one line. */}
+        <section className="message-card">
+          <header>
+            <strong>Message Haulway</strong>
+            <span className="reply-badge"><i aria-hidden="true" />Typically replies in minutes</span>
+          </header>
+          <form className="message-inline" onSubmit={send}>
+            <input
+              aria-label="Message Haulway"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="Type your message…"
+            />
+            <button type="submit" disabled={!message.trim()} aria-label="Send message">↑</button>
+          </form>
+          <div className="quick-actions">
+            <button onClick={() => { setMessage("Timing: "); setShowChat(true); }}>Change timing</button>
+            <button onClick={() => setShowChat(true)}>
+              Open chat{newMessages > 0 && <b>{newMessages > 9 ? "9+" : newMessages}</b>}
+            </button>
+          </div>
+        </section>
       </div>
     </div>
     {cancelSheet}
@@ -1160,12 +1215,6 @@ function describeJobUpdate(before: Job, after: Job): Omit<InAppUpdate, "id" | "j
   return null;
 }
 
-async function readJson(response: Response) {
-  const data = await response.json() as { error?: string };
-  if (!response.ok) throw new Error(data.error || "Something went wrong.");
-  return data;
-}
-function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Something went wrong."; }
 
 /* A part-filled booking, kept so a reload or a backgrounded tab doesn't cost the
    customer six fields of typing. Photos can't come along — File objects aren't

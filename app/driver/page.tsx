@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import type { Job, JobDetails } from "@/lib/contracts";
 import { INTERAC_EMAIL, money, shortDate } from "@/lib/contracts";
 import { Composer, MessageList, useStickyScroll } from "../chat-ui";
+import { errorMessage, readJson } from "../http";
 
 type Gate = "boot" | "setup" | "login" | "dashboard";
 type Filter = "new" | "active" | "done";
@@ -340,8 +341,6 @@ async function operatorFetch(input: string, init: RequestInit = {}) {
   const response = await fetch(input, { ...init, cache: "no-store", headers: { "Content-Type": "application/json", "x-haulway-role": "operator", ...init.headers } });
   return readJson(response);
 }
-async function readJson(response: Response) { const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error || "Something went wrong."); return data; }
-function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Something went wrong."; }
 function siteSummary(building: string | null, stairs: string | null) {
   const parts = [building, stairs].filter(Boolean);
   return parts.length ? parts.join(" · ") : "Building details not given";
