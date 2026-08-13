@@ -104,18 +104,22 @@ test("customer requests stay progress-first with optional chat and swipe complet
     readFile(new URL("lib/jobs.ts", root), "utf8"),
   ]);
   assert.match(page, /const \[showChat, setShowChat\] = useState\(false\)/);
-  /* Progress leads the order page: the stepper must render above the map, which
-     is the guarantee this test exists for. Asserting on header copy instead tied
-     the check to a string the design no longer shows. */
+  /* Progress leads the order page: the stepper must render above the compact
+     status card, without bringing back the decorative driver/map artwork. */
   const trackBody = page.slice(page.indexOf('<div className="track-body">'));
   assert.ok(
-    trackBody.indexOf("journey-card") > -1 && trackBody.indexOf("journey-card") < trackBody.indexOf("map-card"),
-    "haul progress should render before the map on the order page",
+    trackBody.indexOf("journey-card") > -1 && trackBody.indexOf("journey-card") < trackBody.indexOf("tracker-summary"),
+    "haul progress should render before the status summary on the order page",
   );
+  assert.doesNotMatch(page, /function RouteMap|rm-truck|route-map/);
+  assert.match(styles, /\.tracker-summary/);
+  assert.doesNotMatch(styles, /\.rm-truck|\.route-map/);
   assert.match(page, /ESTIMATED ARRIVAL/);
   assert.match(page, /Message Haulway/);
   assert.match(page, /function SwipeToConfirm/);
   assert.match(page, /Swipe to confirm complete/);
+  assert.doesNotMatch(page, /Payment only unlocks after both sides confirm/);
+  assert.match(styles, /\.completion-card[^}]*text-align: center/);
   assert.doesNotMatch(page, /className="complete-button"/);
   assert.match(styles, /\.swipe-confirm/);
   assert.match(styles, /touch-action: none/);

@@ -429,13 +429,6 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .track-body { min-height: 0; padding: var(--s4) var(--s5) var(--s6); display: flex; flex-direction: column; gap: var(--s3); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 
 
-.complete-orbit { position: relative; width: 100%; height: 108px; display: grid; place-items: center; }
-.complete-orbit::before, .complete-orbit::after { content: ""; position: absolute; border: 1px solid rgba(212,240,136,.28); border-radius: 50%; animation: complete-ring 2.6s var(--ease) infinite; }
-.complete-orbit::before { width: 92px; height: 92px; }
-.complete-orbit::after { width: 122px; height: 122px; animation-delay: .45s; }
-.complete-orbit i { width: 66px; height: 66px; display: grid; place-items: center; border-radius: 50%; background: var(--lime); color: var(--forest); font-size: var(--i-lg); font-style: normal; font-weight: 900; box-shadow: 0 12px 28px rgba(0,0,0,.17); }
-@keyframes complete-ring { 50% { transform: scale(1.08); opacity: .45; } }
-
 .journey-card { padding: var(--s4); display: grid; gap: var(--s4); border: 1px solid var(--line-soft); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--e1); }
 .journey-card header { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
 .journey-card header span { color: var(--ink-3); font-size: var(--t-2xs); font-weight: 850; letter-spacing: .12em; }
@@ -449,16 +442,6 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .journey-card .job-journey li:nth-child(5) { animation-delay: .24s; }
 @keyframes journey-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 
-.eta-block { position: relative; min-height: 94px; display: flex; align-items: center; justify-content: space-between; gap: var(--s4); padding: var(--s4) var(--s5); border-radius: var(--r-lg); overflow: hidden; background: linear-gradient(115deg,var(--forest),var(--forest-hi)); color: #fff; box-shadow: var(--e2); }
-.eta-block::after { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg,transparent 30%,rgba(255,255,255,.08) 48%,transparent 66%); transform: translateX(-100%); animation: eta-sheen 3.8s ease-in-out infinite; pointer-events: none; }
-@keyframes eta-sheen { 55%,100% { transform: translateX(100%); } }
-.eta-copy { display: grid; gap: 2px; }
-.eta-copy small { color: var(--lime); font-size: var(--t-2xs); font-weight: 850; letter-spacing: .11em; }
-.eta-copy strong { font-size: var(--t-xl); font-weight: 850; letter-spacing: -.04em; }
-.eta-live { max-width: 88px; display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; color: rgba(255,255,255,.64); font-size: var(--t-2xs); font-weight: 750; line-height: 1.3; text-align: right; }
-.eta-live i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 4px rgba(212,240,136,.12); }
-
-
 .track-actions { display: grid; gap: var(--s3); padding-bottom: var(--s2); }
 /* Before a quote arrives this container renders nothing — without this it still
    claimed a gap slot and left a dead band above the message bar. */
@@ -468,14 +451,13 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .request-action small, .completion-card small, .payment-detail > small { color: var(--lime); font-size: var(--t-2xs); font-weight: 850; letter-spacing: .1em; }
 .request-action strong, .completion-card strong { font-size: var(--t-xl); font-weight: 850; letter-spacing: -.03em; }
 .request-action.quote strong { font-size: var(--t-3xl); }
-.request-action p, .completion-card > p { color: rgba(255,255,255,.65); font-size: var(--t-xs); line-height: 1.45; }
+.request-action p { color: rgba(255,255,255,.65); font-size: var(--t-xs); line-height: 1.45; }
 .request-action-row { display: grid; grid-template-columns: 1fr 1.25fr; gap: var(--s2); }
 .request-action.payment .request-action-row { grid-template-columns: 1fr 1fr; }
 .request-action-row .hw-primary { min-height: var(--h-md); background: var(--orange-dk); box-shadow: none; }
 .request-action-row .pay-option { background: rgba(255,255,255,.06); }
 .completion-card { background: var(--surface); color: var(--ink); border: 1px solid var(--line-soft); }
 .completion-card small { color: var(--orange-dk); }
-.completion-card > p { color: var(--ink-2); }
 
 .swipe-confirm { --swipe-x: 0px; position: relative; width: 100%; height: 62px; padding: 0; border: 0; border-radius: var(--r-full); overflow: hidden; background: var(--sunken); color: var(--forest); cursor: grab; touch-action: none; user-select: none; box-shadow: inset 0 0 0 1px rgba(20,69,58,.08); }
 .swipe-confirm:active { cursor: grabbing; }
@@ -504,11 +486,6 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
    a 16px rhythm and the body scrolls only when a quote or completion card is
    also present. */
 .track-body { padding: var(--s4) var(--s5) var(--s5); gap: var(--s4); overflow-y: auto; }
-.status-completed .complete-orbit { position: absolute; inset: 0 auto 0 8px; width: 96px; height: 100%; }
-.status-completed .complete-orbit::before { width: 72px; height: 72px; }
-.status-completed .complete-orbit::after { width: 92px; height: 92px; }
-.status-completed .complete-orbit i { width: 52px; height: 52px; font-size: var(--i-md); }
-
 .journey-card { padding: 9px var(--s3) 10px; gap: 7px; border-radius: var(--r-md); }
 .journey-card .job-journey li { gap: 3px; font-size: var(--t-2xs); }
 .journey-card .job-journey li::after { top: 8px; }
@@ -516,18 +493,14 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .journey-card header span { font-size: var(--t-2xs); }
 .journey-card header strong { font-size: var(--t-2xs); }
 
-.eta-block { min-height: 68px; padding: var(--s2) var(--s4); border-radius: var(--r-md); }
-.eta-copy strong { font-size: var(--t-xl); }
-.eta-live { max-width: 96px; }
-
 .track-actions { min-height: 0; gap: var(--s2); padding: 0; }
 .request-action, .completion-card { padding: var(--s3); gap: var(--s2); border-radius: var(--r-md); }
 .request-action strong, .completion-card strong { font-size: var(--t-lg); }
 .request-action.quote strong { font-size: var(--t-2xl); }
 .request-action-row .hw-primary, .request-action-row .pay-option { min-height: var(--h-sm); }
-.completion-card { grid-template-columns: minmax(0,1fr) auto; align-items: end; }
-.completion-card > p { max-width: 24ch; }
-.completion-card .swipe-confirm { grid-column: 1/-1; }
+.completion-card { grid-template-columns: 1fr; align-items: center; text-align: center; }
+.completion-card > span { justify-items: center; }
+.completion-card .swipe-confirm { grid-column: 1; }
 .swipe-confirm { height: 52px; }
 .swipe-fill { width: calc(52px + var(--swipe-x)); }
 .swipe-thumb { left: 5px; top: 5px; width: 42px; height: 42px; font-size: var(--t-lg); }
@@ -593,28 +566,21 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .limit-card strong { font-size: var(--t-lg); }
 .limit-card small { max-width: 32ch; color: var(--ink-2); font-size: var(--t-sm); line-height: 1.5; }
 
-/* ---------- live order: map, route, message ---------- */
-.map-card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--e1); overflow: hidden; }
-.route-map { position: relative; height: 160px; background: #eef1ec; }
-.route-map svg { width: 100%; height: 100%; display: block; }
-.rm-bg { fill: #eef1ec; }
-.rm-parks rect { fill: #dfe9dc; }
-.rm-roads path { stroke: #fff; stroke-width: 7; fill: none; stroke-linecap: round; }
-.rm-route { fill: none; stroke: var(--forest); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
-.rm-origin-halo { fill: none; stroke: var(--orange-dk); stroke-width: 3; }
-.rm-origin { fill: var(--surface); }
-.rm-truck circle { fill: var(--forest); }
-.rm-truck text { font-size: 15px; }
-.rm-truck.moving { animation: rm-nudge 2.6s ease-in-out infinite; }
-@keyframes rm-nudge { 0%,100% { transform: translateX(0); } 50% { transform: translateX(-7px); } }
-
-.map-card .eta-block { display: grid; gap: 3px; padding: var(--s4) var(--s5) var(--s5); background: var(--surface); }
-.map-card .eta-block small { color: var(--ink-3); font-size: var(--t-2xs); font-weight: 800; letter-spacing: .1em; }
-.map-card .eta-block strong { font-size: var(--t-2xl); font-weight: 800; letter-spacing: -.03em; }
-.eta-live { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: var(--t-sm); }
-.eta-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok-dot); }
-.eta-live.done { color: var(--ok-fg); font-weight: 700; }
-.map-card.complete .eta-block { justify-items: start; gap: var(--s2); padding-block: var(--s6); }
+/* ---------- live order: clean status, route, message ---------- */
+.tracker-summary { position: relative; min-height: 132px; padding: var(--s5); display: grid; grid-template-columns: minmax(0,1fr) 134px; align-items: center; gap: var(--s4); border-radius: var(--r-lg); overflow: hidden; background: linear-gradient(135deg,var(--deep),var(--forest-hi)); color: #fff; box-shadow: var(--e2); isolation: isolate; }
+.tracker-summary::after { content: ""; position: absolute; z-index: -1; width: 150px; height: 150px; right: -86px; top: -88px; border: 1px solid rgba(212,240,136,.16); border-radius: 50%; box-shadow: 0 0 0 24px rgba(212,240,136,.025); }
+.tracker-copy { min-width: 0; display: grid; gap: 5px; }
+.tracker-kicker { display: inline-flex; align-items: center; gap: 7px; color: var(--lime); font-size: var(--t-2xs); font-weight: 850; letter-spacing: .11em; }
+.tracker-kicker i { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 5px rgba(212,240,136,.11); animation: live-pulse 1.8s ease-in-out infinite; }
+.tracker-copy h2 { max-width: 12ch; font-size: var(--t-2xl); line-height: 1.02; }
+.tracker-copy p { max-width: 27ch; color: rgba(255,255,255,.62); font-size: var(--t-xs); line-height: 1.35; }
+.tracker-eta { min-width: 0; min-height: 82px; padding-left: var(--s4); display: flex; flex-direction: column; justify-content: center; border-left: 1px solid rgba(255,255,255,.15); }
+.tracker-eta small { color: rgba(255,255,255,.58); font-size: var(--t-2xs); font-weight: 800; letter-spacing: .09em; }
+.tracker-eta strong { margin-top: 3px; font-size: var(--t-lg); font-weight: 850; line-height: 1.12; letter-spacing: -.025em; word-break: normal; }
+.tracker-eta span { margin-top: var(--s2); display: inline-flex; align-items: center; gap: 6px; color: var(--lime); font-size: var(--t-2xs); font-weight: 750; }
+.tracker-eta span i { width: 6px; height: 6px; border-radius: 50%; background: var(--lime); }
+.tracker-summary.complete { grid-template-columns: minmax(0,1fr) auto; }
+.tracker-complete-mark { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%; background: var(--lime); color: var(--forest); font-size: var(--i-md); font-weight: 900; box-shadow: 0 10px 24px rgba(0,0,0,.18); }
 
 .trip-card { display: grid; gap: var(--s4); padding: var(--s4) var(--s5); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--e1); }
 .trip-when { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding-bottom: var(--s3); border-bottom: 1px solid var(--line-soft); }
@@ -852,16 +818,14 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
   .home-foot { gap: var(--s1) var(--s3); font-size: var(--t-2xs); }
   .track-nav { min-height: var(--h-md); padding-block: 5px; }
   .track-body { padding-block: 6px 8px; gap: 6px; }
-  .status-completed .complete-orbit { width: 78px; }
-  .status-completed .complete-orbit::after { width: 74px; height: 74px; }
-  .status-completed .complete-orbit::before { width: 58px; height: 58px; }
-  .status-completed .complete-orbit i { width: 44px; height: 44px; font-size: var(--i-sm); }
+  .tracker-summary { min-height: 104px; padding: var(--s3) var(--s4); }
+  .tracker-copy h2 { font-size: var(--t-xl); }
+  .tracker-copy p { display: none; }
+  .tracker-eta { min-height: 64px; }
+  .tracker-eta strong { font-size: var(--t-lg); }
   .journey-card { padding-block: 7px; gap: 5px; }
   .journey-card .job-journey li span { display: none; }
-  .eta-block { min-height: 56px; }
-  .eta-copy strong { font-size: var(--t-lg); }
   .request-action, .completion-card, .rating-card, .completion-summary { padding: 9px; gap: 6px; }
-  .completion-card > p { display: none; }
   .swipe-confirm { height: 46px; }
   .swipe-thumb { width: 36px; height: 36px; }
   .rating-heading > span { width: 34px; height: 34px; font-size: var(--t-lg); }

@@ -388,33 +388,6 @@ function JobRow({ job, unread, onOpen }: { job: Job; unread: boolean; onOpen: (i
   </button>;
 }
 
-/* A stylised route rather than a live map: tiles need a paid provider key, and
-   the exact geometry is not what the customer is reading here — they want to see
-   that a driver is en route. Swapping in real tiles later is contained to this. */
-function RouteMap({ moving }: { moving: boolean }) {
-  return <div className="route-map" aria-hidden="true">
-    <svg viewBox="0 0 340 190" preserveAspectRatio="xMidYMid slice">
-      <rect className="rm-bg" x="0" y="0" width="340" height="190" />
-      <g className="rm-parks">
-        <rect x="12" y="18" width="52" height="34" rx="6" />
-        <rect x="250" y="14" width="60" height="30" rx="6" />
-        <rect x="28" y="132" width="70" height="40" rx="6" />
-        <rect x="228" y="126" width="86" height="46" rx="6" />
-      </g>
-      <g className="rm-roads">
-        <path d="M0 62 H340 M0 118 H340 M84 0 V190 M196 0 V190 M276 0 V190" />
-      </g>
-      <path className="rm-route" d="M62 46 V96 H150 V70 H196 V132 H262" />
-      <circle className="rm-origin-halo" cx="62" cy="46" r="11" />
-      <circle className="rm-origin" cx="62" cy="46" r="5" />
-      <g className={`rm-truck ${moving ? "moving" : ""}`}>
-        <circle cx="262" cy="132" r="17" />
-        <text x="262" y="139" textAnchor="middle">🚚</text>
-      </g>
-    </svg>
-  </div>;
-}
-
 function JobJourney({ status }: { status: string }) {
   const stages = ["Requested", "Driver found", "Quote", "Haul booked", "Complete"];
   const reached = status === "requested" ? 1 : status === "approved" ? 2 : status === "quoted" ? 3 : status === "accepted" || status === "in_progress" ? 4 : 5;
@@ -604,20 +577,20 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
         <JobJourney status={job.status} />
       </section>
 
-      {job.status !== "completed" ? <section className="map-card enter" style={{ animationDelay: ".08s" }}>
-        <RouteMap moving={job.status === "in_progress" || job.status === "accepted"} />
-        <div className="eta-block">
+      <section className={`tracker-summary ${job.status === "completed" ? "complete" : ""} enter`} style={{ animationDelay: ".08s" }}>
+        <div className="tracker-copy">
+          <span className="tracker-kicker"><i aria-hidden="true" />{job.status === "completed" ? "HAUL COMPLETE" : "LIVE TRACKING"}</span>
+          <h2>{headline}</h2>
+          <p>{job.status === "completed"
+            ? !job.paymentMethod ? "Choose how you'll pay to wrap up." : "Everything is wrapped up."
+            : "Status and arrival time update automatically."}</p>
+        </div>
+        {job.status !== "completed" ? <div className="tracker-eta">
           <small>ESTIMATED ARRIVAL</small>
-          <strong>{job.eta ?? "Confirming now…"}</strong>
-          <span className="eta-live"><i aria-hidden="true" />Updates automatically</span>
-        </div>
-      </section> : <section className="map-card complete enter" style={{ animationDelay: ".08s" }}>
-        <div className="eta-block">
-          <span className="complete-orbit" aria-hidden="true"><i>✓</i></span>
-          <strong>{headline}</strong>
-          <span className="eta-live done">{!job.paymentMethod ? "Choose how you'll pay to wrap up." : "Everything is wrapped up."}</span>
-        </div>
-      </section>}
+          <strong>{job.eta ?? "Confirming…"}</strong>
+          <span><i aria-hidden="true" />Live updates</span>
+        </div> : <span className="tracker-complete-mark" aria-hidden="true">✓</span>}
+      </section>
 
       {/* One trip card. The pickup address previously appeared in both a
           scheduled/pickup split and a route list — the duplication is what forced
@@ -648,7 +621,6 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
 
         {(job.status === "accepted" || job.status === "in_progress") && <section className="completion-card">
           <span><small>WHEN THE WORK IS FINISHED</small><strong>Confirm completion</strong></span>
-          <p>Payment only unlocks after both sides confirm.</p>
           <SwipeToConfirm busy={busy} confirmed={job.customerConfirmed} onConfirm={() => action("confirm_complete")} />
         </section>}
 
