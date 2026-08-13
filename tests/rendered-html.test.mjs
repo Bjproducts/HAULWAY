@@ -120,7 +120,13 @@ test("customer requests stay progress-first with optional chat and swipe complet
   assert.match(styles, /\.swipe-confirm/);
   assert.match(styles, /touch-action: none/);
   assert.match(styles, /prefers-reduced-motion/);
-  assert.match(styles, /\.track-body[^}]*overflow: hidden/);
+  /* The order page must not clip. A hidden overflow here silently cut cards off
+     instead of fitting them; fit comes from putting less on the page (one trip
+     card, a pinned message bar), and the scroll is the safety valve for long
+     addresses or an expanded quote. */
+  assert.match(styles, /\.track-body[^}]*overflow-y: auto/);
+  assert.doesNotMatch(styles, /\.track-body[^}]*overflow: hidden/);
+  assert.match(styles, /\.message-bar/);
   assert.match(page, /setTimeout\(\(\) => dismiss\.current\(update\.id\), 4500\)/);
   assert.match(page, /How was your haul\?/);
   assert.match(page, /Not now/);

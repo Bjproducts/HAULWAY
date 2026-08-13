@@ -619,25 +619,22 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
         </div>
       </section>}
 
-      <div className="track-split enter" style={{ animationDelay: ".14s" }}>
-        <div><small>SCHEDULED</small><strong>{shortDate(job.scheduledDate)}</strong><span>{displayTime(job.scheduledTime)}</span></div>
-        <div className="track-split-main">
-          <small>PICKUP</small>
-          <strong>{job.pickupUnit ? `${job.pickupUnit}-${job.pickup}` : job.pickup}</strong>
-          <span>{[job.pickupBuilding, job.pickupStairs].filter(Boolean).join(" · ") || "Edmonton, AB"}</span>
+      {/* One trip card. The pickup address previously appeared in both a
+          scheduled/pickup split and a route list — the duplication is what forced
+          every other card to be squeezed. */}
+      <section className="trip-card enter" style={{ animationDelay: ".14s" }}>
+        <div className="trip-when">
+          <span><small>SCHEDULED</small><strong>{shortDate(job.scheduledDate)} · {displayTime(job.scheduledTime)}</strong></span>
+          {job.fragile && <em className="trip-flag">Fragile</em>}
         </div>
-      </div>
-
-      <section className="route-card enter" style={{ animationDelay: ".2s" }}>
-        <div className="route-stop">
+        <div className="trip-stop">
           <span className="route-pin pickup" aria-hidden="true" />
           <span><small>Pickup</small><strong>{job.pickupUnit ? `${job.pickupUnit}-${job.pickup}` : job.pickup}</strong><em>{[job.pickupBuilding, job.pickupStairs].filter(Boolean).join(" · ") || "Edmonton, AB"}</em></span>
         </div>
-        {job.dropoff && <div className="route-stop">
+        {job.dropoff && <div className="trip-stop">
           <span className="route-pin dropoff" aria-hidden="true" />
           <span><small>Drop-off</small><strong>{job.dropoffUnit ? `${job.dropoffUnit}-${job.dropoff}` : job.dropoff}</strong><em>{[job.dropoffBuilding, job.dropoffStairs].filter(Boolean).join(" · ") || "Edmonton, AB"}</em></span>
         </div>}
-        {job.fragile && <p className="route-flag">Handle with care — fragile items</p>}
       </section>
 
       <div className="track-actions enter" style={{ animationDelay: ".26s" }}>
@@ -681,31 +678,24 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
 
         {error && <p className="chat-error">{error}</p>}
 
-        {/* Sending from here keeps the customer on the page they were reading
-            instead of pushing them into a separate screen to say one line. */}
-        <section className="message-card">
-          <header>
-            <strong>Message Haulway</strong>
-            <span className="reply-badge"><i aria-hidden="true" />Typically replies in minutes</span>
-          </header>
-          <form className="message-inline" onSubmit={send}>
-            <input
-              aria-label="Message Haulway"
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              placeholder="Type your message…"
-            />
-            <button type="submit" disabled={!message.trim()} aria-label="Send message">↑</button>
-          </form>
-          <div className="quick-actions">
-            <button onClick={() => { setMessage("Timing: "); setShowChat(true); }}>Change timing</button>
-            <button onClick={() => setShowChat(true)}>
-              Open chat{newMessages > 0 && <b>{newMessages > 9 ? "9+" : newMessages}</b>}
-            </button>
-          </div>
-        </section>
       </div>
     </div>
+
+    {/* Pinned rather than stacked at the end of the scroll: reaching Haulway is
+        always one tap away, and it stops competing with the status cards for
+        room inside the viewport. */}
+    <form className="message-bar" onSubmit={send}>
+      <input
+        aria-label="Message Haulway"
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+        placeholder="Message Haulway…"
+      />
+      <button type="button" className="message-bar-open" onClick={() => setShowChat(true)} aria-label="Open chat">
+        💬{newMessages > 0 && <b>{newMessages > 9 ? "9+" : newMessages}</b>}
+      </button>
+      <button type="submit" disabled={!message.trim()} aria-label="Send message">↑</button>
+    </form>
     {cancelSheet}
   </section>;
 }
