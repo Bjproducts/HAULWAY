@@ -22,6 +22,7 @@ export type JobRow = {
   scheduled_time: string;
   status: string;
   eta: string | null;
+  driver_arrived_at: string | null;
   quote_cents: number | null;
   payment_method: "interac" | "cash" | null;
   payment_status: "unpaid" | "paid";
@@ -139,7 +140,10 @@ export function mapJob(job: JobRow) {
     status: job.status,
     eta: etaDueAt ? `${Math.max(0, Math.ceil((Date.parse(etaDueAt) - Date.now()) / 60_000))} min` : job.eta,
     etaDueAt,
-    driverArrived: job.status === "in_progress",
+    /* Arrival is independent from quoting: a driver may reach the pickup while
+       the customer is still reviewing the quote. Keep the status fallback for
+       records created before the dedicated timestamp migration. */
+    driverArrived: Boolean(job.driver_arrived_at) || job.status === "in_progress",
     quoteCents: job.quote_cents,
     paymentMethod: job.payment_method,
     paymentStatus: job.payment_status,

@@ -181,12 +181,13 @@ test("ETA counts down in whole minutes and driver arrival is a durable swipe upd
   assert.match(actions, /etaMinutes/);
   assert.match(actions, /eta: etaDueAt/);
   assert.match(actions, /body\.action === "mark_arrived"/);
-  assert.match(actions, /status: "in_progress"/);
+  assert.match(actions, /driver_arrived_at: new Date\(\)\.toISOString\(\)/);
+  assert.match(actions, /ARRIVAL_STATUSES\.has\(job\.status\)/);
   assert.match(actions, /Your driver has arrived at the pickup address/);
   assert.match(contracts, /etaDueAt: string \| null/);
   assert.match(contracts, /driverArrived: boolean/);
   assert.match(jobsData, /etaDeadline\(job\.eta\)/);
-  assert.match(jobsData, /driverArrived: job\.status === "in_progress"/);
+  assert.match(jobsData, /driverArrived: Boolean\(job\.driver_arrived_at\) \|\| job\.status === "in_progress"/);
   assert.match(customer, /function EtaCountdown/);
   assert.match(customer, /Math\.ceil\(\(deadline - now\) \/ 60_000\)/);
   assert.match(customer, /remaining % 60_000 \|\| 60_000/);
@@ -194,6 +195,7 @@ test("ETA counts down in whole minutes and driver arrival is a durable swipe upd
   assert.doesNotMatch(customer, /seconds? remaining/i);
   assert.match(driver, /Swipe when you arrive/);
   assert.match(driver, /action\("mark_arrived"\)/);
+  assert.match(driver, /ARRIVAL_STATUSES\.has\(job\.status\)/);
   assert.match(driver, /Change timer/);
   assert.match(styles, /\.op-arrival-card/);
 });

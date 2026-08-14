@@ -10,6 +10,7 @@ type Context = { params: Promise<{ id: string }> };
 /* A customer can back out until they have accepted a quote. */
 const CANCELLABLE = new Set(["requested", "approved", "quoted"]);
 const ETA_STATUSES = new Set(["approved", "quoted", "accepted", "in_progress"]);
+const ARRIVAL_STATUSES = new Set(["approved", "quoted", "accepted", "in_progress"]);
 
 export async function GET(request: Request, context: Context) {
   const session = await getApiSession(request);
@@ -46,7 +47,7 @@ export async function PATCH(request: Request, context: Context) {
     } else if (body.action === "set_eta") {
       if (session.role !== "operator") return jsonError("Operator access required.", 403);
       if (!ETA_STATUSES.has(job.status)) return jsonError("An ETA can only be set for an active request.");
-      if (job.status === "in_progress") return jsonError("The driver has already marked this haul as arrived.", 409);
+      if (job.driver_arrived_at || job.status === "in_progress") return jsonError("The driver has already marked this haul as arrived.", 409);
       const etaMinutes = Number(body.etaMinutes);
       if (!Number.isInteger(etaMinutes) || etaMinutes < 1 || etaMinutes > 360) return jsonError("Enter an ETA from 1 to 360 minutes.");
       const eta = `${etaMinutes} min`;
@@ -58,9 +59,13 @@ export async function PATCH(request: Request, context: Context) {
       };
     } else if (body.action === "mark_arrived") {
       if (session.role !== "operator") return jsonError("Operator access required.", 403);
-      if (job.status === "in_progress") return jsonError("Arrival was already confirmed.", 409);
-      if (job.status !== "accepted") return jsonError("Arrival can only be marked after the customer accepts the quote.");
-      await updateJob(id, { status: "in_progress", eta: null });
+      if (job.driver_arrived_at || job.status === "in_progress") return jsonError("Arrival was already confirmed.", 409);
+      if (!ARRIVAL_STATUSES.has(job.status)) return jsonError("Arrival can only be marked for an active request.");
+      await updateJob(id, {
+        driver_arrived_at: new Date().toISOString(),
+        status: job.status === "accepted" ? "in_progress" : job.status,
+        eta: null,
+      });
       smsEvent = {
         id: await addSystemMessage(id, "Your driver has arrived at the pickup address."),
         body: "HAULWAY update: Your driver has arrived at the pickup address.",
@@ -87,7 +92,7 @@ export async function PATCH(request: Request, context: Context) {
     } else if (body.action === "accept_quote") {
       if (session.role !== "customer") return jsonError("Customer access required.", 403);
       if (job.status !== "quoted" || !job.quote_cents) return jsonError("There is no quote to accept.");
-      await updateJob(id, { status: "accepted" });
+      await updateJob(id, { status: job.driver_arrived_at ? "in_progress" : "accepted" });
       smsEvent = {
         id: await addSystemMessage(id, `Quote accepted: ${formatMoney(job.quote_cents)}.`),
         body: `HAULWAY confirmation: Your ${formatMoney(job.quote_cents)} quote was accepted and your haul is booked.`,

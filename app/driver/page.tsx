@@ -18,6 +18,7 @@ const FILTERS: Array<{ id: Filter; label: string; match: (job: Job) => boolean }
   { id: "active", label: "Active", match: (job) => ["approved", "quoted", "accepted", "in_progress"].includes(job.status) },
   { id: "done", label: "Done", match: (job) => job.status === "completed" || job.status === "cancelled" },
 ];
+const ARRIVAL_STATUSES = new Set(["approved", "quoted", "accepted", "in_progress"]);
 
 function OperatorLogo() {
   return <span className="op-logo"><span className="op-mark">H</span><span><b>HAULWAY</b><small>OPERATOR</small></span></span>;
@@ -340,7 +341,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         <button disabled={busy || !quote} onClick={() => void action("send_quote", { amount: Number(quote) })}>{job.quoteCents ? "Update quote" : "Send quote"}</button>
       </div>}
 
-      {(job.status === "accepted" || job.status === "in_progress") && <section className={`op-arrival-card ${job.driverArrived ? "arrived" : ""}`}>
+      {ARRIVAL_STATUSES.has(job.status) && <section className={`op-arrival-card ${job.driverArrived ? "arrived" : ""}`}>
         <div><small>{job.driverArrived ? "ARRIVAL CONFIRMED" : "AT THE PICKUP"}</small><strong>{job.driverArrived ? "The customer knows you’re here." : "Let the customer know you arrived."}</strong></div>
         <SwipeAction
           busy={busy}
@@ -352,7 +353,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         />
       </section>}
 
-      {(job.status === "accepted" || job.status === "in_progress") && job.driverArrived && <button className="op-accept" disabled={busy || job.operatorConfirmed} onClick={() => void action("confirm_complete")}>{job.operatorConfirmed ? "Waiting on the customer ✓" : "Confirm job complete"}</button>}
+      {job.status === "in_progress" && job.driverArrived && <button className="op-accept" disabled={busy || job.operatorConfirmed} onClick={() => void action("confirm_complete")}>{job.operatorConfirmed ? "Waiting on the customer ✓" : "Confirm job complete"}</button>}
 
       {job.status === "cancelled" && <div className="op-cancelled">Cancelled by the customer</div>}
     </div>
