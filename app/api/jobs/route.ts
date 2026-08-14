@@ -1,6 +1,6 @@
 import { getStorage, getSupabase, getSupabasePublicConfig, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
-import { BUILDING_TYPES, MAX_OPEN_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS } from "@/lib/contracts";
+import { ACTIVE_JOB_STATUSES, BUILDING_TYPES, MAX_ACTIVE_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS } from "@/lib/contracts";
 import { flattenJob, mapJob } from "@/lib/jobs";
 import { internalError, jsonError } from "@/lib/responses";
 import { consumeRateLimit, guardMutation } from "@/lib/security";
@@ -118,16 +118,17 @@ export async function POST(request: Request) {
     const allowed = await consumeRateLimit(request, "job-create", 6, 60 * 60, session.subjectId);
     if (!allowed) return jsonError("Too many booking attempts. Try again later.", 429);
 
-    /* Cap how many hauls sit unclaimed per customer, so the board stays real. */
-    const { count: openCount, error: countError } = await getSupabase()
+    /* One submitted haul owns the customer experience until completion or
+       cancellation. Abandoned upload drafts must never lock an account. */
+    const { count: activeCount, error: countError } = await getSupabase()
       .from("jobs")
       .select("id", { count: "exact", head: true })
       .eq("customer_id", session.subjectId)
       .eq("upload_complete", true)
-      .eq("status", "requested");
+      .in("status", [...ACTIVE_JOB_STATUSES]);
     throwDatabaseError(countError);
-    if ((openCount ?? 0) >= MAX_OPEN_REQUESTS) {
-      return jsonError(`You already have ${MAX_OPEN_REQUESTS} hauls waiting for a driver. Once one is picked up you can book another.`, 409);
+    if ((activeCount ?? 0) >= MAX_ACTIVE_REQUESTS) {
+      return jsonError("You already have an active haul. Finish or cancel it before booking another.", 409);
     }
 
     const jobId = crypto.randomUUID();

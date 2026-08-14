@@ -1,6 +1,6 @@
 import { getStorage, getSupabase, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
-import { addSystemMessage, canAccessJob, getJobDetails, getJobRow, updateJob } from "@/lib/jobs";
+import { addSystemMessage, canAccessJob, getJobDetails, getJobRow } from "@/lib/jobs";
 import { internalError, jsonError } from "@/lib/responses";
 import { guardMutation } from "@/lib/security";
 import { notifyJobSms } from "@/lib/sms";
@@ -35,7 +35,13 @@ export async function POST(request: Request, context: Context) {
       }
     }));
 
-    await updateJob(id, { upload_complete: true });
+    const { error: finalizeError } = await getSupabase().from("jobs").update({ upload_complete: true }).eq("id", id);
+    /* The database serializes finalization for this customer, closing the tiny
+       race between two tabs without counting abandoned upload drafts. */
+    if (finalizeError?.code === "23505") {
+      return jsonError("You already have an active haul. Finish or cancel it before booking another.", 409);
+    }
+    throwDatabaseError(finalizeError);
     const eventId = await addSystemMessage(id, "Request received. We’ll review the details and send your quote here.");
     await notifyJobSms(job, eventId, "HAULWAY: We received your request and are finding a driver. Updates will be sent here. Reply STOP to opt out.");
     return Response.json({ job: await getJobDetails(id) }, { status: 201 });

@@ -142,3 +142,29 @@ test("customer requests stay progress-first with optional chat and swipe complet
   assert.match(ratingMigration, /customer_rating smallint/);
   assert.match(ratingMigration, /rating_skipped boolean/);
 });
+
+test("customers can book only one active haul and stay focused on it", async () => {
+  const [page, styles, jobs, uploads, contracts, migration] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("app/api/jobs/route.ts", root), "utf8"),
+    readFile(new URL("app/api/jobs/[id]/uploads/route.ts", root), "utf8"),
+    readFile(new URL("lib/contracts.ts", root), "utf8"),
+    readFile(new URL("supabase/migrations/20260813000000_one_active_haul.sql", root), "utf8"),
+  ]);
+  assert.match(contracts, /MAX_ACTIVE_REQUESTS = 1/);
+  assert.match(contracts, /ACTIVE_JOB_STATUSES/);
+  assert.match(jobs, /\.in\("status", \[\.\.\.ACTIVE_JOB_STATUSES\]\)/);
+  assert.match(jobs, /You already have an active haul/);
+  assert.match(uploads, /finalizeError\?\.code === "23505"/);
+  assert.match(migration, /before insert or update of upload_complete, status on public\.jobs/);
+  assert.match(migration, /prevent_second_active_haul/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /and upload_complete/);
+  assert.match(page, /const focusLocked = focusedJob !== null/);
+  assert.match(page, /activeJobId/);
+  assert.match(page, /!focusLocked && <nav className="tab-bar">/);
+  assert.match(page, /focusLocked \? <FocusContext \/>/);
+  assert.match(styles, /\.app-shell\.focus-mode/);
+  assert.match(styles, /\.focus-badge/);
+});

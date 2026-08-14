@@ -5,7 +5,7 @@
 import { ChangeEvent, CSSProperties, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
-import { BUILDING_TYPES, INTERAC_EMAIL, MAX_OPEN_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
+import { BUILDING_TYPES, INTERAC_EMAIL, MAX_ACTIVE_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
 import { Composer, MessageList, useStickyScroll } from "./chat-ui";
 import { errorMessage, readJson } from "./http";
 
@@ -39,12 +39,21 @@ export default function CustomerApp() {
      {} during SSR and the real map on the client. */
   const [seen, setSeen] = useState<Record<string, number>>(readSeen);
 
+  /* If legacy/demo data contains several unfinished hauls, keep the one already
+     open; otherwise focus the newest one. New bookings are capped at one. */
+  const activeJobs = jobs.filter((job) => !FINISHED.has(job.status));
+  const focusedJob = activeJobs.find((job) => job.id === openJobId) ?? activeJobs[0] ?? null;
+  const focusedJobId = focusedJob?.id ?? null;
+  const focusLocked = focusedJob !== null;
+
   /* A snapshot makes polling feel event-driven: only changes since the last
      successful refresh become notifications, never the initial page load. */
   const jobSnapshot = useRef<Map<string, Job> | null>(null);
   const updateId = useRef(0);
-  const nav = useRef({ screen, tab, openJobId });
-  useEffect(() => { nav.current = { screen, tab, openJobId }; }, [screen, tab, openJobId]);
+  const nav = useRef<{ screen: Screen; tab: Tab; openJobId: string | null; activeJobId: string | null }>({ screen, tab, openJobId, activeJobId: focusedJobId });
+  useEffect(() => {
+    nav.current = { screen, tab, openJobId, activeJobId: focusedJobId };
+  }, [screen, tab, openJobId, focusedJobId]);
 
   const refreshJobs = useCallback(async (silentJobId?: string) => {
     try {
@@ -60,22 +69,19 @@ export default function CustomerApp() {
         });
         if (changed.length) setUpdates((current) => [...current, ...changed].slice(-3));
 
-        /* A fast driver may accept and quote between two polls, so any move out
-           of "requested" counts as accepted and opens the live tracking view. */
-        const claimed = data.jobs.find((job) => {
-          const before = previous.get(job.id);
-          return before?.status === "requested" && job.status !== "requested" && job.status !== "cancelled";
-        });
-        if (claimed) {
-          const currentView = nav.current;
-          const alreadyOpen = currentView.screen === "app" && currentView.tab === "requests" && currentView.openJobId === claimed.id;
-          if (!alreadyOpen) {
-            setScreen("app");
-            setTab("requests");
-            setOpenJobId(claimed.id);
-            history.pushState({ hw: true }, "");
-          }
-        }
+      }
+      /* The unfinished haul is the customer's temporary home. This also covers
+         driver acceptance while the customer is elsewhere in the app. */
+      const currentView = nav.current;
+      const currentActive = data.jobs.find((job) => job.id === currentView.openJobId && !FINISHED.has(job.status));
+      const nextFocus = currentActive ?? data.jobs.find((job) => !FINISHED.has(job.status)) ?? null;
+      nav.current = nextFocus
+        ? { screen: "app", tab: "requests", openJobId: nextFocus.id, activeJobId: nextFocus.id }
+        : { ...currentView, activeJobId: null };
+      if (nextFocus && (currentView.screen !== "app" || currentView.tab !== "requests" || currentView.openJobId !== nextFocus.id)) {
+        setScreen("app");
+        setTab("requests");
+        setOpenJobId(nextFocus.id);
       }
       jobSnapshot.current = new Map(data.jobs.map((job) => [job.id, job]));
       setJobs(data.jobs);
@@ -98,8 +104,8 @@ export default function CustomerApp() {
         const next = payload.customer;
         setOtpRequired(payload.otpRequired !== false);
         setCustomer(next);
-        setScreen(next ? "app" : "auth");
-        if (next) void refreshJobs();
+        if (next) void refreshJobs().finally(() => active && setScreen("app"));
+        else setScreen("auth");
       })
       .catch(() => active && setScreen("auth"));
     return () => { active = false; };
@@ -108,7 +114,12 @@ export default function CustomerApp() {
   /* Android back / browser back should step back through the app, not leave it. */
   useEffect(() => {
     function onPop() {
-      const { screen: s, tab: t, openJobId: j } = nav.current;
+      const { screen: s, tab: t, openJobId: j, activeJobId } = nav.current;
+      if (activeJobId) {
+        setScreen("app"); setTab("requests"); setOpenJobId(activeJobId);
+        history.pushState({ hw: true }, "");
+        return;
+      }
       /* Leaving the booking flow: pick up whatever it saved so Home can offer a resume. */
       if (s === "request") { setScreen("app"); setDraft(readDraft()); return; }
       if (j) { setOpenJobId(null); setNotice(""); return; }
@@ -136,11 +147,13 @@ export default function CustomerApp() {
   }
 
   function goTab(next: Tab) {
+    if (focusActiveHaul()) return;
     setTab(next); setNotice("");
     if (next !== "requests") setOpenJobId(null);
   }
 
   function returnHome() {
+    if (focusActiveHaul()) return;
     setNotice("");
     setOpenJobId(null);
     setTab("home");
@@ -151,6 +164,12 @@ export default function CustomerApp() {
      stay in step — the back buttons just call history.back(). */
   function goDeeper() { history.pushState({ hw: true }, ""); }
 
+  function focusActiveHaul() {
+    if (!focusedJob) return false;
+    setScreen("app"); setTab("requests"); setOpenJobId(focusedJob.id); setNotice("");
+    return true;
+  }
+
   function openJob(id: string) {
     setOpenJobId(id);
     goDeeper();
@@ -159,8 +178,9 @@ export default function CustomerApp() {
   function openUpdate(update: InAppUpdate) {
     setUpdates((current) => current.filter((entry) => entry.id !== update.id));
     setScreen("app"); setTab("requests");
-    if (nav.current.openJobId !== update.jobId) {
-      setOpenJobId(update.jobId);
+    const targetId = focusedJob?.id ?? update.jobId;
+    if (nav.current.openJobId !== targetId) {
+      setOpenJobId(targetId);
       goDeeper();
     }
   }
@@ -199,12 +219,13 @@ export default function CustomerApp() {
   }
   if (!customer) return <Splash />;
 
-  const openRequests = jobs.filter((job) => job.status === "requested").length;
-
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${focusLocked ? "focus-mode" : ""}`}>
       <header className="app-bar">
-        <button className="app-bar-logo" onClick={() => goTab("home")} aria-label="Haulway home"><Logo /></button>
+        {focusLocked
+          ? <span className="app-bar-logo app-bar-logo-static"><Logo /></span>
+          : <button className="app-bar-logo" onClick={() => goTab("home")} aria-label="Haulway home"><Logo /></button>}
+        {focusLocked && <span className="focus-badge"><i aria-hidden="true" />Active haul</span>}
         <span className="head-menu">
           <button className="app-avatar" onClick={() => setAccountOpen((value) => !value)} aria-label="Your account" aria-expanded={accountOpen}>{initials(customer.name)}</button>
           {accountOpen && <>
@@ -224,8 +245,7 @@ export default function CustomerApp() {
       <main className="app-body">
         {tab === "home" && <HomeTab
           customer={customer}
-          activeCount={jobs.filter((job) => !FINISHED.has(job.status)).length}
-          openRequests={openRequests}
+          activeCount={activeJobs.length}
           draft={draft}
           onDiscardDraft={() => { clearDraft(); setDraft(null); }}
           onRequests={() => goTab("requests")}
@@ -237,14 +257,14 @@ export default function CustomerApp() {
         />}
         {/* A request opens on progress; chat remains a secondary destination. */}
         {tab === "requests" && (openJobId
-          ? <RequestView key={openJobId} jobId={openJobId} banner={notice} seenCount={seen[openJobId] ?? 0} onBack={() => history.back()} onHome={returnHome} onChanged={refreshJobs} onSeen={markSeen} />
+          ? <RequestView key={openJobId} jobId={openJobId} banner={notice} seenCount={seen[openJobId] ?? 0} focusLocked={focusLocked} onBack={() => history.back()} onHome={returnHome} onChanged={refreshJobs} onSeen={markSeen} />
           : <RequestsTab jobs={jobs} notice={notice} unread={unread} onOpen={openJob} onNew={() => goTab("home")} />)}
       </main>
 
-      <nav className="tab-bar">
+      {!focusLocked && <nav className="tab-bar">
         <TabButton icon="⌂" label="Home" active={tab === "home"} onClick={() => goTab("home")} />
         <TabButton icon="▤" label="Requests" active={tab === "requests"} badge={jobs.filter((job) => !FINISHED.has(job.status)).length} onClick={() => goTab("requests")} />
-      </nav>
+      </nav>}
     </div>
   );
 }
@@ -275,8 +295,8 @@ function TabButton({ icon, label, active, badge = 0, onClick }: { icon: string; 
 
 /* ---------- Home ---------- */
 
-function HomeTab({ customer, activeCount, openRequests, draft, onDiscardDraft, onRequests, onPick }: { customer: Customer; activeCount: number; openRequests: number; draft: Draft | null; onDiscardDraft: () => void; onRequests: () => void; onPick: (service: Service) => void }) {
-  const atLimit = openRequests >= MAX_OPEN_REQUESTS;
+function HomeTab({ customer, activeCount, draft, onDiscardDraft, onRequests, onPick }: { customer: Customer; activeCount: number; draft: Draft | null; onDiscardDraft: () => void; onRequests: () => void; onPick: (service: Service) => void }) {
+  const atLimit = activeCount >= MAX_ACTIVE_REQUESTS;
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -291,7 +311,7 @@ function HomeTab({ customer, activeCount, openRequests, draft, onDiscardDraft, o
         <span className="micro-label enter" style={{ animationDelay: ".05s" }}>HI {customer.name.split(" ")[0].toUpperCase()}</span>
         <h1>
           {atLimit ? <>
-            <span className="enter" style={{ animationDelay: ".18s" }}>Two hauls are</span>
+            <span className="enter" style={{ animationDelay: ".18s" }}>Your current haul is</span>
             <span className="enter accent" style={{ animationDelay: ".30s" }}>already in motion.</span>
           </> : <>
             <span className="enter" style={{ animationDelay: ".18s" }}>Ohh, what can</span>
@@ -318,8 +338,8 @@ function HomeTab({ customer, activeCount, openRequests, draft, onDiscardDraft, o
 
       {atLimit ? <div className="limit-card enter" style={{ animationDelay: ".5s" }}>
         <span className="limit-icon" aria-hidden="true">🚚</span>
-        <strong>You&apos;re at the {MAX_OPEN_REQUESTS}-haul limit</strong>
-        <small>Both are still waiting for a driver. As soon as one gets picked up, you can book the next.</small>
+        <strong>One haul at a time</strong>
+        <small>Finish or cancel your current haul before booking another.</small>
       </div> : <div className={`service-picker enter ${open ? "open" : ""}`} style={{ animationDelay: ".58s" }}>
         <button className="picker-trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls="service-options">
           <span className="picker-dot" aria-hidden="true" />
@@ -403,7 +423,7 @@ function JobJourney({ status }: { status: string }) {
 
 /* ---------- One request: waiting, tracking, and optional chat ---------- */
 
-function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSeen }: { jobId: string; banner?: string; seenCount: number; onBack: () => void; onHome: () => void; onChanged: (silentJobId?: string) => Promise<Job[]>; onSeen: (id: string, count: number) => void }) {
+function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, onChanged, onSeen }: { jobId: string; banner?: string; seenCount: number; focusLocked: boolean; onBack: () => void; onHome: () => void; onChanged: (silentJobId?: string) => Promise<Job[]>; onSeen: (id: string, count: number) => void }) {
   const [job, setJob] = useState<JobDetails | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -489,7 +509,7 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
   }
 
   if (!job) return <section className="sub-page">
-    <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button></div>
+    <div className="sub-head">{focusLocked ? <FocusContext /> : <button className="back-link" onClick={onBack}>← Requests</button>}</div>
     <div className="sub-scroll"><div className="skeleton-card" /></div>
   </section>;
 
@@ -503,7 +523,7 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
 
   /* Nothing to talk about until a driver takes it — so no chat, no photos, no details. */
   if (job.status === "requested") return <section className="waiting-page">
-    <div className="sub-head"><button className="back-link" onClick={onBack}>← Requests</button><span className="status-pill requested">{statusLabel(job.status)}</span></div>
+    <div className="sub-head">{focusLocked ? <FocusContext /> : <button className="back-link" onClick={onBack}>← Requests</button>}<span className="status-pill requested">{statusLabel(job.status)}</span></div>
     <div className="waiting-body">
       {banner && <p className="booked-banner" role="status">✓ {banner}</p>}
       <span className="radar" aria-hidden="true"><i /><i /><i /><b>🚚</b></span>
@@ -559,7 +579,7 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
 
   return <section className={`track-page status-${job.status}`}>
     <div className="track-nav">
-      <button className="back-link" onClick={onBack}>← Requests</button>
+      {focusLocked ? <FocusContext /> : <button className="back-link" onClick={onBack}>← Requests</button>}
       <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
       {CANCELLABLE.has(job.status) && <span className="head-menu">
         <button className="menu-dots" onClick={() => setMenuOpen((value) => !value)} aria-label="Request options" aria-expanded={menuOpen}>⋮</button>
@@ -670,6 +690,10 @@ function RequestView({ jobId, banner, seenCount, onBack, onHome, onChanged, onSe
     </form>
     {cancelSheet}
   </section>;
+}
+
+function FocusContext() {
+  return <span className="focus-context"><i aria-hidden="true" />Current haul</span>;
 }
 
 function RatingPrompt({ busy, exit, paymentMethod, paymentStatus, amount, onRate, onSkip }: {

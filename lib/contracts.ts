@@ -6,8 +6,9 @@ export const BUILDING_TYPES = ["House", "Apartment", "Townhouse", "Commercial", 
 /* Picking this one reveals the unit-number field. */
 export const NEEDS_UNIT = "Apartment";
 
-/* How many hauls a customer may have waiting for a driver at once. */
-export const MAX_OPEN_REQUESTS = 2;
+/* A customer stays with one unfinished haul from booking through completion. */
+export const MAX_ACTIVE_REQUESTS = 1;
+export const ACTIVE_JOB_STATUSES = ["requested", "approved", "quoted", "accepted", "in_progress"] as const;
 export const STAIRS_OPTIONS = ["No stairs", "1 flight", "2+ flights", "Elevator"] as const;
 
 export type Customer = { id: string; name: string; phone: string };
