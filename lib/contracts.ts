@@ -48,6 +48,8 @@ export type Job = {
   scheduledTime: string;
   status: string;
   eta: string | null;
+  etaDueAt: string | null;
+  driverArrived: boolean;
   quoteCents: number | null;
   paymentMethod: "interac" | "cash" | null;
   paymentStatus: "unpaid" | "paid";

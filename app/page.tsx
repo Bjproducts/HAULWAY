@@ -2,12 +2,13 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { ChangeEvent, CSSProperties, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
 import { BUILDING_TYPES, INTERAC_EMAIL, MAX_ACTIVE_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
 import { Composer, MessageList, useStickyScroll } from "./chat-ui";
 import { errorMessage, readJson } from "./http";
+import { SwipeAction } from "./swipe-action";
 
 type Screen = "boot" | "auth" | "app" | "request";
 type Tab = "home" | "requests";
@@ -397,7 +398,7 @@ function RequestsTab({ jobs, notice, unread, onOpen, onNew }: { jobs: Job[]; not
 function JobRow({ job, unread, onOpen }: { job: Job; unread: boolean; onOpen: (id: string) => void }) {
   return <button className={`job-row ${unread ? "unread" : ""}`} onClick={() => onOpen(job.id)}>
     <span className="job-row-top">
-      <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+      <span className={`status-pill ${job.status}`}>{statusLabel(job.status, job.driverArrived)}</span>
       {unread && <span className="new-dot">New</span>}
     </span>
     <strong>{job.item}</strong>
@@ -568,7 +569,7 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
     <Composer value={message} onChange={setMessage} onSend={send} busy={false} placeholder="Message Haulway…" />
   </section>;
 
-  const headline = ({
+  const headline = job.driverArrived ? "Your driver has arrived." : ({
     approved: "Your driver is locked in.",
     quoted: "Your quote is ready.",
     accepted: "Your haul is booked.",
@@ -580,7 +581,7 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
   return <section className={`track-page status-${job.status}`}>
     <div className="track-nav">
       {focusLocked ? <FocusContext /> : <button className="back-link" onClick={onBack}>← Requests</button>}
-      <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+      <span className={`status-pill ${job.status}`}>{statusLabel(job.status, job.driverArrived)}</span>
       {CANCELLABLE.has(job.status) && <span className="head-menu">
         <button className="menu-dots" onClick={() => setMenuOpen((value) => !value)} aria-label="Request options" aria-expanded={menuOpen}>⋮</button>
         {menuOpen && <>
@@ -597,19 +598,15 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
         <JobJourney status={job.status} />
       </section>
 
-      <section className={`tracker-summary ${job.status === "completed" ? "complete" : ""} enter`} style={{ animationDelay: ".08s" }}>
+      <section className={`tracker-summary ${job.status === "completed" ? "complete" : ""} ${job.driverArrived ? "arrived" : ""} enter`} style={{ animationDelay: ".08s" }}>
         <div className="tracker-copy">
-          <span className="tracker-kicker"><i aria-hidden="true" />{job.status === "completed" ? "HAUL COMPLETE" : "LIVE TRACKING"}</span>
+          <span className="tracker-kicker"><i aria-hidden="true" />{job.status === "completed" ? "HAUL COMPLETE" : job.driverArrived ? "DRIVER ARRIVED" : "LIVE TRACKING"}</span>
           <h2>{headline}</h2>
           <p>{job.status === "completed"
             ? !job.paymentMethod ? "Choose how you'll pay to wrap up." : "Everything is wrapped up."
             : "Status and arrival time update automatically."}</p>
         </div>
-        {job.status !== "completed" ? <div className="tracker-eta">
-          <small>ESTIMATED ARRIVAL</small>
-          <strong>{job.eta ?? "Confirming…"}</strong>
-          <span><i aria-hidden="true" />Live updates</span>
-        </div> : <span className="tracker-complete-mark" aria-hidden="true">✓</span>}
+        {job.status !== "completed" ? <EtaCountdown key={`${job.etaDueAt}-${job.driverArrived}`} job={job} /> : <span className="tracker-complete-mark" aria-hidden="true">✓</span>}
       </section>
 
       {/* One trip card. The pickup address previously appeared in both a
@@ -639,7 +636,7 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
           </div>
         </section>}
 
-        {(job.status === "accepted" || job.status === "in_progress") && <section className="completion-card">
+        {(job.status === "accepted" || job.status === "in_progress") && job.driverArrived && <section className="completion-card">
           <span><small>WHEN THE WORK IS FINISHED</small><strong>Confirm completion</strong></span>
           <SwipeToConfirm busy={busy} confirmed={job.customerConfirmed} onConfirm={() => action("confirm_complete")} />
         </section>}
@@ -696,6 +693,29 @@ function FocusContext() {
   return <span className="focus-context"><i aria-hidden="true" />Current haul</span>;
 }
 
+function EtaCountdown({ job }: { job: Job }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!job.etaDueAt || job.driverArrived) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, [job.etaDueAt, job.driverArrived]);
+
+  if (job.driverArrived) return <div className="tracker-eta arrived" role="status">
+    <small>DRIVER STATUS</small>
+    <strong>Arrived</strong>
+    <span><i aria-hidden="true" />At your pickup</span>
+  </div>;
+
+  const deadline = job.etaDueAt ? Date.parse(job.etaDueAt) : Number.NaN;
+  const minutes = Number.isNaN(deadline) ? null : Math.max(0, Math.ceil((deadline - now) / 60_000));
+  return <div className="tracker-eta">
+    <small>ESTIMATED ARRIVAL</small>
+    <strong>{minutes == null ? job.eta ?? "Confirming…" : `${minutes} min`}</strong>
+    <span><i aria-hidden="true" />Live updates</span>
+  </div>;
+}
+
 function RatingPrompt({ busy, exit, paymentMethod, paymentStatus, amount, onRate, onSkip }: {
   busy: boolean;
   exit: "rated" | "skipped" | null;
@@ -734,71 +754,13 @@ function RatingPrompt({ busy, exit, paymentMethod, paymentStatus, amount, onRate
 }
 
 function SwipeToConfirm({ busy, confirmed, onConfirm }: { busy: boolean; confirmed: boolean; onConfirm: () => Promise<boolean> }) {
-  const [offset, setOffset] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const start = useRef<number | null>(null);
-  const current = useRef(0);
-
-  function begin(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (busy || confirmed) return;
-    start.current = event.clientX;
-    current.current = 0;
-    setDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function move(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (start.current == null || busy || confirmed) return;
-    const maximum = Math.max(0, event.currentTarget.getBoundingClientRect().width - 64);
-    const next = Math.min(maximum, Math.max(0, event.clientX - start.current));
-    current.current = next;
-    setOffset(next);
-  }
-
-  function finish(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (start.current == null) return;
-    const maximum = Math.max(0, event.currentTarget.getBoundingClientRect().width - 64);
-    const completed = maximum > 0 && current.current / maximum >= .72;
-    start.current = null;
-    setDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    if (completed) {
-      setOffset(maximum);
-      void onConfirm().then((succeeded) => {
-        if (!succeeded) {
-          current.current = 0;
-          setOffset(0);
-        }
-      });
-    } else {
-      current.current = 0;
-      setOffset(0);
-    }
-  }
-
-  function keyConfirm(event: KeyboardEvent<HTMLButtonElement>) {
-    if (!busy && !confirmed && (event.key === "Enter" || event.key === " ")) {
-      event.preventDefault();
-      void onConfirm();
-    }
-  }
-
-  return <button
-    type="button"
-    className={`swipe-confirm ${dragging ? "dragging" : ""} ${confirmed ? "confirmed" : ""}`}
-    style={{ "--swipe-x": `${offset}px` } as CSSProperties}
-    disabled={busy || confirmed}
-    aria-label={confirmed ? "Completion confirmed; waiting for Haulway" : "Swipe right to confirm the job is complete, or press Enter"}
-    onPointerDown={begin}
-    onPointerMove={move}
-    onPointerUp={finish}
-    onPointerCancel={finish}
-    onKeyDown={keyConfirm}
-  >
-    <span className="swipe-fill" aria-hidden="true" />
-    <span className="swipe-label">{confirmed ? "Confirmed — waiting on Haulway" : busy ? "Confirming…" : "Swipe to confirm complete"}</span>
-    <span className="swipe-thumb" aria-hidden="true">{confirmed ? "✓" : "→"}</span>
-  </button>;
+  return <SwipeAction
+    busy={busy}
+    confirmed={confirmed}
+    label="Swipe to confirm complete"
+    confirmedLabel="Confirmed — waiting on Haulway"
+    onConfirm={onConfirm}
+  />;
 }
 
 /* ---------- Request sent ---------- */
@@ -1121,7 +1083,20 @@ function LocationBlock({ title, index, inputId, address, onAddress, placeholder,
   return <div className="loc-block">
     <div className="loc-head"><i aria-hidden="true">{index}</i><strong>{title}</strong><em>Required</em></div>
     <input id={inputId} value={address} onChange={(event) => onAddress(event.target.value)} placeholder={placeholder} aria-label={`${title} address`} autoComplete="street-address" />
-    <ChipGroup label="Type of building" options={BUILDING_TYPES} value={building} onChange={onBuilding} />
+    <label className="building-select">
+      <span className="chip-label">Type of building</span>
+      <span className="select-shell">
+        <select value={building} onChange={(event) => {
+          const next = event.target.value;
+          onBuilding(next);
+          if (next !== NEEDS_UNIT) onUnit("");
+        }} aria-label={`${title} building type`}>
+          <option value="">Choose building type</option>
+          {BUILDING_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+        <i aria-hidden="true">⌄</i>
+      </span>
+    </label>
     {/* Revealed only for an apartment — the driver needs a door to knock on. */}
     <div className={`unit-slot ${needsUnit ? "open" : ""}`} aria-hidden={!needsUnit}>
       <div className="unit-slot-inner">
@@ -1160,7 +1135,15 @@ function describeJobUpdate(before: Job, after: Job): Omit<InAppUpdate, "id" | "j
     icon: "💬",
   };
 
-  if (before.eta !== after.eta) return {
+  if (!before.driverArrived && after.driverArrived) return {
+    title: "Your driver has arrived",
+    detail: `${after.item} · At your pickup address`,
+    icon: "✓",
+  };
+
+  /* The displayed minute naturally changes as time passes; only a new deadline
+     from the driver should create a notification. Legacy free-text ETAs still work. */
+  if (before.etaDueAt !== after.etaDueAt || !before.etaDueAt && !after.etaDueAt && before.eta !== after.eta) return {
     title: after.eta ? "Your ETA was updated" : "Your driver is updating the ETA",
     detail: `${after.item}${after.eta ? ` · Arriving ${after.eta}` : " · Check back shortly"}`,
     icon: "🕒",
@@ -1255,4 +1238,7 @@ function displayTime(value: string) {
   if (hours > 23 || Number(match[2]) > 59) return value.trim();
   return `${hours % 12 === 0 ? 12 : hours % 12}:${match[2]} ${hours < 12 ? "AM" : "PM"}`;
 }
-function statusLabel(status: string) { return ({ requested: "Looking for a driver", approved: "Driver found", quoted: "Quote ready", accepted: "Booked", in_progress: "On the way", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status; }
+function statusLabel(status: string, driverArrived = false) {
+  if (driverArrived && status !== "completed") return "Driver arrived";
+  return ({ requested: "Looking for a driver", approved: "Driver found", quoted: "Quote ready", accepted: "Booked", in_progress: "On the way", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status;
+}

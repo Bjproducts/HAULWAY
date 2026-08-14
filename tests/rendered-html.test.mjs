@@ -78,7 +78,7 @@ test("security controls and durable request-update SMS are wired end to end", as
   ]);
   assert.match(security, /Cross-site request blocked/);
   assert.match(security, /consume_rate_limit/);
-  assert.match(actions, /Only an active booked job can be confirmed complete/);
+  assert.match(actions, /Mark the driver as arrived before confirming the job complete/);
   assert.match(actions, /job must be completed before payment is recorded/i);
   assert.match(actions, /notifyJobSms/);
   assert.match(messages, /notifyJobSms/);
@@ -167,4 +167,39 @@ test("customers can book only one active haul and stay focused on it", async () 
   assert.match(page, /focusLocked \? <FocusContext \/>/);
   assert.match(styles, /\.app-shell\.focus-mode/);
   assert.match(styles, /\.focus-badge/);
+});
+
+test("ETA counts down in whole minutes and driver arrival is a durable swipe update", async () => {
+  const [customer, driver, actions, contracts, jobsData, styles] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/driver/page.tsx", root), "utf8"),
+    readFile(new URL("app/api/jobs/[id]/route.ts", root), "utf8"),
+    readFile(new URL("lib/contracts.ts", root), "utf8"),
+    readFile(new URL("lib/jobs.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  assert.match(actions, /etaMinutes/);
+  assert.match(actions, /eta: etaDueAt/);
+  assert.match(actions, /body\.action === "mark_arrived"/);
+  assert.match(actions, /status: "in_progress"/);
+  assert.match(actions, /Your driver has arrived at the pickup address/);
+  assert.match(contracts, /etaDueAt: string \| null/);
+  assert.match(contracts, /driverArrived: boolean/);
+  assert.match(jobsData, /etaDeadline\(job\.eta\)/);
+  assert.match(jobsData, /driverArrived: job\.status === "in_progress"/);
+  assert.match(customer, /function EtaCountdown/);
+  assert.match(customer, /Math\.ceil\(\(deadline - now\) \/ 60_000\)/);
+  assert.doesNotMatch(customer, /seconds? remaining/i);
+  assert.match(driver, /Swipe when you arrive/);
+  assert.match(driver, /action\("mark_arrived"\)/);
+  assert.match(styles, /\.op-arrival-card/);
+});
+
+test("booking addresses use building dropdowns and reveal apartment units", async () => {
+  const customer = await readFile(new URL("app/page.tsx", root), "utf8");
+  assert.match(customer, /<select value=\{building\}/);
+  assert.match(customer, /Choose building type/);
+  assert.match(customer, /BUILDING_TYPES\.map/);
+  assert.match(customer, /const needsUnit = building === NEEDS_UNIT/);
+  assert.match(customer, /Apartment \/ unit number/);
 });

@@ -7,6 +7,7 @@ import type { Job, JobDetails } from "@/lib/contracts";
 import { INTERAC_EMAIL, money, shortDate } from "@/lib/contracts";
 import { Composer, MessageList, useStickyScroll } from "../chat-ui";
 import { errorMessage, readJson } from "../http";
+import { SwipeAction } from "../swipe-action";
 
 type Gate = "boot" | "setup" | "login" | "dashboard";
 type Filter = "new" | "active" | "done";
@@ -118,14 +119,14 @@ export default function DriverPortal() {
       {visible.length ? visible.map((job) => <div key={job.id} className="op-card">
         <button className="op-card-main" onClick={() => setOpenId(job.id)}>
           <span className="op-card-top">
-            <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+            <span className={`status-pill ${job.status}`}>{statusLabel(job)}</span>
             {job.fragile && <span className="op-flag">Fragile</span>}
           </span>
           <strong>{job.item}</strong>
           <small>{job.customer.name} · {job.pickup}</small>
           <span className="op-card-foot">
             <b>{shortDate(job.scheduledDate)} · {job.scheduledTime}</b>
-            <em>{job.quoteCents ? money(job.quoteCents) : job.eta ? job.eta : "No quote"}</em>
+            <em>{job.quoteCents ? money(job.quoteCents) : etaLabel(job)}</em>
           </span>
         </button>
         {/* Taking a job from the list drops the driver straight into it. */}
@@ -188,7 +189,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   const [job, setJob] = useState<JobDetails | null>(null);
   const [pane, setPane] = useState<Pane>("job");
   const [quote, setQuote] = useState("");
-  const [eta, setEta] = useState("");
+  const [etaMinutes, setEtaMinutes] = useState("");
   const etaTouched = useRef(false);
   const etaInput = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
@@ -206,7 +207,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         if (!active) return;
         setJob(data.job);
         if (!quoteTouched.current) setQuote(data.job.quoteCents ? String(data.job.quoteCents / 100) : "");
-        if (!etaTouched.current) setEta(data.job.eta ?? "");
+        if (!etaTouched.current) setEtaMinutes(remainingEtaInput(data.job));
       } catch { /* retry on next poll */ }
     }
     void poll();
@@ -221,7 +222,11 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
       setJob(data.job); quoteTouched.current = false; etaTouched.current = false; await onChanged();
       /* Just took the job — the ETA is the next thing the customer is waiting on. */
       if (actionName === "approve_request") window.setTimeout(() => etaInput.current?.focus(), 60);
-    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+      return true;
+    } catch (caught) {
+      setError(errorMessage(caught));
+      return false;
+    } finally { setBusy(false); }
   }
 
   async function send(event: FormEvent) {
@@ -259,10 +264,10 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
     </div>
 
     {pane === "job" ? <main className="op-detail">
-      <span className={`status-pill ${job.status}`}>{statusLabel(job.status)}</span>
+      <span className={`status-pill ${job.status}`}>{statusLabel(job)}</span>
       <div className="op-job-snapshot">
         <span><small>SCHEDULED</small><strong>{shortDate(job.scheduledDate)} · {job.scheduledTime}</strong></span>
-        <span><small>CURRENT VALUE</small><strong>{job.quoteCents ? money(job.quoteCents) : job.eta ?? "Awaiting quote"}</strong></span>
+        <span><small>LIVE ETA</small><strong>{etaLabel(job)}</strong></span>
       </div>
 
       {media.length > 0 && <div className="op-media">{media.map((entry) => entry.contentType.startsWith("video/")
@@ -318,9 +323,9 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
       {job.status !== "completed" && job.status !== "cancelled" && <div className="op-action-context"><span>NEXT ACTION</span><small>Customer updates automatically</small></div>}
       {job.status === "requested" && <button className="op-accept" disabled={busy} onClick={() => void action("approve_request")}>Accept this request<span aria-hidden="true">→</span></button>}
 
-      {job.status !== "requested" && job.status !== "completed" && job.status !== "cancelled" && <div className="op-eta">
-        <label><span>ETA</span><input ref={etaInput} value={eta} onChange={(event) => { etaTouched.current = true; setEta(event.target.value); }} placeholder="e.g. 25 min, or 3:15 PM" maxLength={40} /></label>
-        <button disabled={busy || !eta.trim()} onClick={() => void action("set_eta", { eta })}>{job.eta ? "Update" : "Set"}</button>
+      {job.status !== "requested" && job.status !== "completed" && job.status !== "cancelled" && !job.driverArrived && <div className="op-eta">
+        <label><input ref={etaInput} type="number" inputMode="numeric" min="1" max="360" value={etaMinutes} onChange={(event) => { etaTouched.current = true; setEtaMinutes(event.target.value.replace(/\D/g, "").slice(0, 3)); }} placeholder="25" aria-label="Estimated arrival in minutes" /><span>MIN</span></label>
+        <button disabled={busy || !etaMinutes || Number(etaMinutes) < 1 || Number(etaMinutes) > 360} onClick={() => void action("set_eta", { etaMinutes: Number(etaMinutes) })}>{job.etaDueAt ? "Update" : "Start ETA"}</button>
       </div>}
 
       {(job.status === "approved" || job.status === "quoted") && <div className="op-quote">
@@ -328,7 +333,19 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         <button disabled={busy || !quote} onClick={() => void action("send_quote", { amount: Number(quote) })}>{job.quoteCents ? "Update quote" : "Send quote"}</button>
       </div>}
 
-      {(job.status === "accepted" || job.status === "in_progress") && <button className="op-accept" disabled={busy || job.operatorConfirmed} onClick={() => void action("confirm_complete")}>{job.operatorConfirmed ? "Waiting on the customer ✓" : "Confirm job complete"}</button>}
+      {(job.status === "accepted" || job.status === "in_progress") && <section className={`op-arrival-card ${job.driverArrived ? "arrived" : ""}`}>
+        <div><small>{job.driverArrived ? "ARRIVAL CONFIRMED" : "AT THE PICKUP"}</small><strong>{job.driverArrived ? "The customer knows you’re here." : "Let the customer know you arrived."}</strong></div>
+        <SwipeAction
+          busy={busy}
+          confirmed={job.driverArrived}
+          label="Swipe when you arrive"
+          confirmedLabel="Driver arrived ✓"
+          tone="arrival"
+          onConfirm={() => action("mark_arrived")}
+        />
+      </section>}
+
+      {(job.status === "accepted" || job.status === "in_progress") && job.driverArrived && <button className="op-accept" disabled={busy || job.operatorConfirmed} onClick={() => void action("confirm_complete")}>{job.operatorConfirmed ? "Waiting on the customer ✓" : "Confirm job complete"}</button>}
 
       {job.status === "cancelled" && <div className="op-cancelled">Cancelled by the customer</div>}
     </div>
@@ -348,4 +365,19 @@ function siteSummary(building: string | null, stairs: string | null) {
 function withUnit(address: string, unit: string | null) {
   return unit ? `Unit ${unit} — ${address}` : address;
 }
-function statusLabel(status: string) { return ({ requested: "Needs approval", approved: "Needs quote", quoted: "Quote sent", accepted: "Booked", in_progress: "In progress", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status; }
+function etaLabel(job: Job) {
+  if (job.driverArrived) return "Arrived";
+  if (!job.etaDueAt) return job.eta ?? "ETA not set";
+  const minutes = Math.max(0, Math.ceil((Date.parse(job.etaDueAt) - Date.now()) / 60_000));
+  return `${minutes} min`;
+}
+
+function remainingEtaInput(job: Job) {
+  if (!job.etaDueAt || job.driverArrived) return "";
+  return String(Math.max(1, Math.ceil((Date.parse(job.etaDueAt) - Date.now()) / 60_000)));
+}
+
+function statusLabel(job: Job) {
+  if (job.driverArrived && job.status !== "completed") return "Arrived";
+  return ({ requested: "Needs approval", approved: "Needs quote", quoted: "Quote sent", accepted: "Booked", in_progress: "In progress", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[job.status] ?? job.status;
+}

@@ -118,6 +118,7 @@ export function flattenJob(job: JobWithCustomer): JobRow {
 }
 
 export function mapJob(job: JobRow) {
+  const etaDueAt = etaDeadline(job.eta);
   return {
     id: job.id,
     customer: { id: job.customer_id, name: job.customer_name, phone: job.customer_phone },
@@ -136,7 +137,9 @@ export function mapJob(job: JobRow) {
     scheduledDate: job.scheduled_date,
     scheduledTime: job.scheduled_time,
     status: job.status,
-    eta: job.eta,
+    eta: etaDueAt ? `${Math.max(0, Math.ceil((Date.parse(etaDueAt) - Date.now()) / 60_000))} min` : job.eta,
+    etaDueAt,
+    driverArrived: job.status === "in_progress",
     quoteCents: job.quote_cents,
     paymentMethod: job.payment_method,
     paymentStatus: job.payment_status,
@@ -147,6 +150,11 @@ export function mapJob(job: JobRow) {
     createdAt: job.created_at,
     updatedAt: job.updated_at,
   };
+}
+
+function etaDeadline(value: string | null) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}T/.test(value) || Number.isNaN(Date.parse(value))) return null;
+  return value;
 }
 
 export async function addSystemMessage(jobId: string, body: string) {

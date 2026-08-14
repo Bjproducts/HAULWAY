@@ -10,7 +10,6 @@ type Context = { params: Promise<{ id: string }> };
 /* A customer can back out until they have accepted a quote. */
 const CANCELLABLE = new Set(["requested", "approved", "quoted"]);
 const ETA_STATUSES = new Set(["approved", "quoted", "accepted", "in_progress"]);
-const COMPLETABLE = new Set(["accepted", "in_progress"]);
 
 export async function GET(request: Request, context: Context) {
   const session = await getApiSession(request);
@@ -32,7 +31,7 @@ export async function PATCH(request: Request, context: Context) {
     const job = await getJobRow(id);
     if (!job) return jsonError("Job not found.", 404);
     if (!canAccessJob(session, job)) return jsonError("You cannot access this job.", 403);
-    const body = await request.json() as { action?: string; amount?: number; method?: string; eta?: string; rating?: number; skip?: boolean };
+    const body = await request.json() as { action?: string; amount?: number; method?: string; etaMinutes?: number; rating?: number; skip?: boolean };
     if (job.status === "cancelled") return jsonError("This request was cancelled.", 409);
     let smsEvent: { id: string; body: string } | null = null;
 
@@ -47,12 +46,24 @@ export async function PATCH(request: Request, context: Context) {
     } else if (body.action === "set_eta") {
       if (session.role !== "operator") return jsonError("Operator access required.", 403);
       if (!ETA_STATUSES.has(job.status)) return jsonError("An ETA can only be set for an active request.");
-      const eta = (body.eta ?? "").trim().slice(0, 40);
-      if (!eta) return jsonError("Enter an ETA.");
-      await updateJob(id, { eta });
+      if (job.status === "in_progress") return jsonError("The driver has already marked this haul as arrived.", 409);
+      const etaMinutes = Number(body.etaMinutes);
+      if (!Number.isInteger(etaMinutes) || etaMinutes < 1 || etaMinutes > 360) return jsonError("Enter an ETA from 1 to 360 minutes.");
+      const eta = `${etaMinutes} min`;
+      const etaDueAt = new Date(Date.now() + etaMinutes * 60_000).toISOString();
+      await updateJob(id, { eta: etaDueAt });
       smsEvent = {
         id: await addSystemMessage(id, `Driver ETA: ${eta}.`),
         body: `HAULWAY update: Your driver ETA is ${eta}.`,
+      };
+    } else if (body.action === "mark_arrived") {
+      if (session.role !== "operator") return jsonError("Operator access required.", 403);
+      if (job.status === "in_progress") return jsonError("Arrival was already confirmed.", 409);
+      if (job.status !== "accepted") return jsonError("Arrival can only be marked after the customer accepts the quote.");
+      await updateJob(id, { status: "in_progress", eta: null });
+      smsEvent = {
+        id: await addSystemMessage(id, "Your driver has arrived at the pickup address."),
+        body: "HAULWAY update: Your driver has arrived at the pickup address.",
       };
     } else if (body.action === "cancel_request") {
       if (session.role !== "customer") return jsonError("Customer access required.", 403);
@@ -115,7 +126,7 @@ export async function PATCH(request: Request, context: Context) {
         body: "HAULWAY confirmation: Your payment was received. Thank you.",
       };
     } else if (body.action === "confirm_complete") {
-      if (!COMPLETABLE.has(job.status)) return jsonError("Only an active booked job can be confirmed complete.");
+      if (job.status !== "in_progress") return jsonError("Mark the driver as arrived before confirming the job complete.");
       const confirmationField = session.role === "operator" ? "operator_confirmed" : "customer_confirmed";
       if (job[confirmationField]) return jsonError("You already confirmed this job.", 409);
       await updateJob(id, { [confirmationField]: true });
