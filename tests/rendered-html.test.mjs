@@ -212,3 +212,16 @@ test("booking addresses use building dropdowns and reveal apartment units", asyn
   assert.match(actions, /pickupBuildingChoice === NEEDS_BUILDING_DETAIL/);
   assert.match(actions, /`\$\{NEEDS_BUILDING_DETAIL\}: \$\{pickupBuildingOther\}`/);
 });
+
+test("the desktop driver portal stays centered after operator mobile styles", async () => {
+  const styles = await readFile(new URL("app/globals.css", root), "utf8");
+  const operatorMobileRule = styles.indexOf(".op-gate { position: fixed; inset: 0;");
+  const finalDesktopRule = styles.lastIndexOf("@media (min-width: 760px)");
+  assert.ok(operatorMobileRule >= 0);
+  assert.ok(finalDesktopRule > operatorMobileRule);
+  const desktopOverride = styles.slice(finalDesktopRule);
+  assert.match(desktopOverride, /\.op-shell, \.op-gate, \.op-boot/);
+  assert.match(desktopOverride, /left: 50%/);
+  assert.match(desktopOverride, /top: 50%/);
+  assert.match(desktopOverride, /transform: translate\(-50%, -50%\)/);
+});

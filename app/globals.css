@@ -1028,3 +1028,20 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .op-quote button { min-height: var(--h-lg); padding: 0 var(--s5); border: 0; border-radius: var(--r-md); background: var(--orange-dk); color: #fff; font-size: var(--t-md); font-weight: 800; cursor: pointer; box-shadow: var(--e1); }
 .op-quote button:hover { background: var(--orange); }
 .op-cancelled { min-height: var(--h-md); display: grid; place-items: center; border-radius: var(--r-md); background: var(--danger-bg); color: var(--danger-fg); font-size: var(--t-sm); font-weight: 800; }
+
+/* Operator styles are declared after the shared desktop frame above. Keep this
+   final override here so their mobile `inset: 0` cannot pull the translated
+   desktop panel half off-screen. */
+@media (min-width: 760px) {
+  .op-shell, .op-gate, .op-boot {
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: min(var(--shell-w), calc(100vw - 32px));
+    height: min(896px, calc(100dvh - 48px));
+    transform: translate(-50%, -50%);
+    border-radius: 40px;
+    overflow: hidden;
+    box-shadow: var(--e4), 0 0 0 1px rgba(255,255,255,.06);
+  }
+}
