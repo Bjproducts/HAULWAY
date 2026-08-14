@@ -766,6 +766,7 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 }
 .unit-field input:focus { outline: 0; background: var(--surface); border-color: var(--forest); box-shadow: 0 0 0 3px rgba(20,69,58,.1); }
 .unit-field input::placeholder { color: var(--ink-ph); font-weight: 400; }
+.other-building-field input { max-width: none; }
 
 /* additional information — collapsed by default so step 2 stays short */
 .info-drop { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--e1); overflow: hidden; }
@@ -988,7 +989,15 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .op-accept { width: 100%; min-height: var(--h-lg); display: inline-flex; align-items: center; justify-content: space-between; padding: 0 var(--s5); border: 0; border-radius: var(--r-md); background: var(--forest); color: #fff; font-size: var(--t-md); font-weight: 800; cursor: pointer; box-shadow: var(--e2); transition: background .15s var(--ease), transform .15s var(--ease); }
 .op-accept:hover { background: var(--forest-hi); }
 .op-accept:active { transform: translateY(1px); }
-.op-eta { display: grid; grid-template-columns: 1fr auto; gap: var(--s2); margin-bottom: var(--s2); }
+.op-eta-panel { display: grid; gap: var(--s2); margin-bottom: var(--s2); padding: var(--s3); border: 1px solid var(--line-soft); border-radius: var(--r-lg); background: var(--sunken); }
+.op-eta-panel.running { border-color: rgba(63,156,105,.2); background: var(--ok-bg); }
+.op-eta-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.op-eta-heading > span { display: grid; gap: 2px; }
+.op-eta-heading small { color: var(--orange-dk); font-size: var(--t-2xs); font-weight: 850; letter-spacing: .1em; }
+.op-eta-heading strong { font-size: var(--t-sm); }
+.op-eta-heading > i { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--ok-fg); box-shadow: 0 0 0 5px rgba(24,119,78,.1); animation: live-pulse 1.8s ease-in-out infinite; }
+.op-eta-panel > p { margin: 0; color: var(--ink-3); font-size: var(--t-2xs); }
+.op-eta { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: var(--s2); }
 .op-eta label { min-width: 0; display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s4); border: 1px solid transparent; border-radius: var(--r-md); background: var(--sunken); }
 .op-eta label:focus-within { background: var(--surface); border-color: var(--forest); box-shadow: 0 0 0 3px rgba(20,69,58,.1); }
 .op-eta label span { flex: 0 0 auto; color: var(--ink-3); font-size: var(--t-2xs); font-weight: 800; letter-spacing: .1em; }

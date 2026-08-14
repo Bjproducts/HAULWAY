@@ -5,6 +5,8 @@ export const INTERAC_EMAIL = "jbuoapu@gmail.com";
 export const BUILDING_TYPES = ["House", "Apartment", "Townhouse", "Commercial", "Other"] as const;
 /* Picking this one reveals the unit-number field. */
 export const NEEDS_UNIT = "Apartment";
+/* Picking this one reveals a short free-text building description. */
+export const NEEDS_BUILDING_DETAIL = "Other";
 
 /* A customer stays with one unfinished haul from booking through completion. */
 export const MAX_ACTIVE_REQUESTS = 1;

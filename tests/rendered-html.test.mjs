@@ -189,9 +189,12 @@ test("ETA counts down in whole minutes and driver arrival is a durable swipe upd
   assert.match(jobsData, /driverArrived: job\.status === "in_progress"/);
   assert.match(customer, /function EtaCountdown/);
   assert.match(customer, /Math\.ceil\(\(deadline - now\) \/ 60_000\)/);
+  assert.match(customer, /remaining % 60_000 \|\| 60_000/);
+  assert.match(customer, /window\.setInterval\(\(\) => setNow\(Date\.now\(\)\), 60_000\)/);
   assert.doesNotMatch(customer, /seconds? remaining/i);
   assert.match(driver, /Swipe when you arrive/);
   assert.match(driver, /action\("mark_arrived"\)/);
+  assert.match(driver, /Change timer/);
   assert.match(styles, /\.op-arrival-card/);
 });
 
@@ -201,5 +204,11 @@ test("booking addresses use building dropdowns and reveal apartment units", asyn
   assert.match(customer, /Choose building type/);
   assert.match(customer, /BUILDING_TYPES\.map/);
   assert.match(customer, /const needsUnit = building === NEEDS_UNIT/);
+  assert.match(customer, /const needsBuildingDetail = building === NEEDS_BUILDING_DETAIL/);
+  assert.match(customer, /Describe the building/);
+  assert.match(customer, /pickupBuildingOther/);
   assert.match(customer, /Apartment \/ unit number/);
+  const actions = await readFile(new URL("app/api/jobs/route.ts", root), "utf8");
+  assert.match(actions, /pickupBuildingChoice === NEEDS_BUILDING_DETAIL/);
+  assert.match(actions, /`\$\{NEEDS_BUILDING_DETAIL\}: \$\{pickupBuildingOther\}`/);
 });

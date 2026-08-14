@@ -5,7 +5,7 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Customer, Job, JobDetails } from "@/lib/contracts";
-import { BUILDING_TYPES, INTERAC_EMAIL, MAX_ACTIVE_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
+import { BUILDING_TYPES, INTERAC_EMAIL, MAX_ACTIVE_REQUESTS, NEEDS_BUILDING_DETAIL, NEEDS_UNIT, STAIRS_OPTIONS, money, shortDate } from "@/lib/contracts";
 import { Composer, MessageList, useStickyScroll } from "./chat-ui";
 import { errorMessage, readJson } from "./http";
 import { SwipeAction } from "./swipe-action";
@@ -697,8 +697,22 @@ function EtaCountdown({ job }: { job: Job }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!job.etaDueAt || job.driverArrived) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
+    const deadline = Date.parse(job.etaDueAt);
+    if (Number.isNaN(deadline)) return;
+
+    /* Wake precisely when the displayed whole minute should roll over. We never
+       render seconds, but a 5-minute ETA becomes 4 minutes one minute later. */
+    let minuteTimer: number | undefined;
+    const remaining = Math.max(0, deadline - Date.now());
+    const untilNextMinute = remaining > 0 ? (remaining % 60_000 || 60_000) : 60_000;
+    const boundaryTimer = window.setTimeout(() => {
+      setNow(Date.now());
+      minuteTimer = window.setInterval(() => setNow(Date.now()), 60_000);
+    }, untilNextMinute + 25);
+    return () => {
+      window.clearTimeout(boundaryTimer);
+      if (minuteTimer !== undefined) window.clearInterval(minuteTimer);
+    };
   }, [job.etaDueAt, job.driverArrived]);
 
   if (job.driverArrived) return <div className="tracker-eta arrived" role="status">
@@ -874,10 +888,12 @@ function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service
   const [pickup, setPickup] = useState(draft?.pickup ?? "");
   const [pickupUnit, setPickupUnit] = useState(draft?.pickupUnit ?? "");
   const [pickupBuilding, setPickupBuilding] = useState(draft?.pickupBuilding ?? "");
+  const [pickupBuildingOther, setPickupBuildingOther] = useState(draft?.pickupBuildingOther ?? "");
   const [pickupStairs, setPickupStairs] = useState(draft?.pickupStairs ?? "");
   const [dropoff, setDropoff] = useState(draft?.dropoff ?? "");
   const [dropoffUnit, setDropoffUnit] = useState(draft?.dropoffUnit ?? "");
   const [dropoffBuilding, setDropoffBuilding] = useState(draft?.dropoffBuilding ?? "");
+  const [dropoffBuildingOther, setDropoffBuildingOther] = useState(draft?.dropoffBuildingOther ?? "");
   const [dropoffStairs, setDropoffStairs] = useState(draft?.dropoffStairs ?? "");
   const [fragile, setFragile] = useState<boolean | null>(draft?.fragile ?? null);
   const [description, setDescription] = useState(draft?.description ?? "");
@@ -894,14 +910,14 @@ function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service
      customer has entered something worth keeping. The parent re-reads on exit, so
      there is no need to push state upward on every keystroke. */
   useEffect(() => {
-    const filled = [pickup, pickupUnit, pickupBuilding, pickupStairs, dropoff, dropoffUnit, dropoffBuilding, dropoffStairs, description].some(Boolean) || fragile !== null;
+    const filled = [pickup, pickupUnit, pickupBuilding, pickupBuildingOther, pickupStairs, dropoff, dropoffUnit, dropoffBuilding, dropoffBuildingOther, dropoffStairs, description].some(Boolean) || fragile !== null;
     if (!filled) return;
     writeDraft({
-      service, pickup, pickupUnit, pickupBuilding, pickupStairs,
-      dropoff, dropoffUnit, dropoffBuilding, dropoffStairs,
+      service, pickup, pickupUnit, pickupBuilding, pickupBuildingOther, pickupStairs,
+      dropoff, dropoffUnit, dropoffBuilding, dropoffBuildingOther, dropoffStairs,
       fragile, description, date, time, savedAt: Date.now(),
     });
-  }, [service, pickup, pickupUnit, pickupBuilding, pickupStairs, dropoff, dropoffUnit, dropoffBuilding, dropoffStairs, fragile, description, date, time]);
+  }, [service, pickup, pickupUnit, pickupBuilding, pickupBuildingOther, pickupStairs, dropoff, dropoffUnit, dropoffBuilding, dropoffBuildingOther, dropoffStairs, fragile, description, date, time]);
 
   function addFiles(event: ChangeEvent<HTMLInputElement>) {
     const room = 8 - uploads.length;
@@ -916,7 +932,9 @@ function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service
      The button stays live and explains itself rather than sitting dead and unexplained. */
   function continueDetails() {
     if (!pickup.trim()) return failField("Add the pickup address to continue.", "pickup-address");
+    if (pickupBuilding === NEEDS_BUILDING_DETAIL && !pickupBuildingOther.trim()) return failField("Tell us what kind of pickup building it is.", "pickup-building-other");
     if (service === "move" && !dropoff.trim()) return failField("Add the drop-off address to continue.", "dropoff-address");
+    if (service === "move" && dropoffBuilding === NEEDS_BUILDING_DETAIL && !dropoffBuildingOther.trim()) return failField("Tell us what kind of drop-off building it is.", "dropoff-building-other");
     setError(""); setStep(3);
   }
   function failField(message: string, id: string) {
@@ -936,8 +954,8 @@ function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           serviceType: service, pickup, dropoff, description, fragile,
-          pickupUnit, pickupBuilding, pickupStairs,
-          dropoffUnit, dropoffBuilding, dropoffStairs,
+          pickupUnit, pickupBuilding, pickupBuildingOther, pickupStairs,
+          dropoffUnit, dropoffBuilding, dropoffBuildingOther, dropoffStairs,
           scheduledDate: date, scheduledTime: time,
           media: uploads.map(({ file }) => ({ filename: file.name, contentType: file.type, sizeBytes: file.size })),
         }),
@@ -1014,6 +1032,7 @@ function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service
           address={pickup} onAddress={setPickup} placeholder="Pickup address in Edmonton"
           unit={pickupUnit} onUnit={setPickupUnit}
           building={pickupBuilding} onBuilding={setPickupBuilding}
+          buildingOther={pickupBuildingOther} onBuildingOther={setPickupBuildingOther}
           stairs={pickupStairs} onStairs={setPickupStairs}
         />
 
@@ -1022,6 +1041,7 @@ function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service
           address={dropoff} onAddress={setDropoff} placeholder="Drop-off address"
           unit={dropoffUnit} onUnit={setDropoffUnit}
           building={dropoffBuilding} onBuilding={setDropoffBuilding}
+          buildingOther={dropoffBuildingOther} onBuildingOther={setDropoffBuildingOther}
           stairs={dropoffStairs} onStairs={setDropoffStairs}
         />}
 
@@ -1074,12 +1094,13 @@ function RequestFlow({ service, draft, onCancel, onCreated }: { service: Service
   </div>;
 }
 
-function LocationBlock({ title, index, inputId, address, onAddress, placeholder, unit, onUnit, building, onBuilding, stairs, onStairs }: {
+function LocationBlock({ title, index, inputId, address, onAddress, placeholder, unit, onUnit, building, onBuilding, buildingOther, onBuildingOther, stairs, onStairs }: {
   title: string; index: string; inputId: string; address: string; onAddress: (value: string) => void; placeholder: string;
   unit: string; onUnit: (value: string) => void;
-  building: string; onBuilding: (value: string) => void; stairs: string; onStairs: (value: string) => void;
+  building: string; onBuilding: (value: string) => void; buildingOther: string; onBuildingOther: (value: string) => void; stairs: string; onStairs: (value: string) => void;
 }) {
   const needsUnit = building === NEEDS_UNIT;
+  const needsBuildingDetail = building === NEEDS_BUILDING_DETAIL;
   return <div className="loc-block">
     <div className="loc-head"><i aria-hidden="true">{index}</i><strong>{title}</strong><em>Required</em></div>
     <input id={inputId} value={address} onChange={(event) => onAddress(event.target.value)} placeholder={placeholder} aria-label={`${title} address`} autoComplete="street-address" />
@@ -1090,6 +1111,7 @@ function LocationBlock({ title, index, inputId, address, onAddress, placeholder,
           const next = event.target.value;
           onBuilding(next);
           if (next !== NEEDS_UNIT) onUnit("");
+          if (next !== NEEDS_BUILDING_DETAIL) onBuildingOther("");
         }} aria-label={`${title} building type`}>
           <option value="">Choose building type</option>
           {BUILDING_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -1103,6 +1125,14 @@ function LocationBlock({ title, index, inputId, address, onAddress, placeholder,
         <label className="unit-field">
           <span className="chip-label">Apartment / unit number</span>
           <input value={unit} onChange={(event) => onUnit(event.target.value)} placeholder="e.g. 402" maxLength={20} tabIndex={needsUnit ? 0 : -1} />
+        </label>
+      </div>
+    </div>
+    <div className={`unit-slot ${needsBuildingDetail ? "open" : ""}`} aria-hidden={!needsBuildingDetail}>
+      <div className="unit-slot-inner">
+        <label className="unit-field other-building-field">
+          <span className="chip-label">Describe the building</span>
+          <input id={inputId.replace("address", "building-other")} value={buildingOther} onChange={(event) => onBuildingOther(event.target.value)} placeholder="e.g. storage facility" maxLength={33} tabIndex={needsBuildingDetail ? 0 : -1} />
         </label>
       </div>
     </div>
@@ -1190,8 +1220,8 @@ function describeJobUpdate(before: Job, after: Job): Omit<InAppUpdate, "id" | "j
    serialisable — so a restored draft always lands back on the photo step. */
 type Draft = {
   service: Service;
-  pickup: string; pickupUnit: string; pickupBuilding: string; pickupStairs: string;
-  dropoff: string; dropoffUnit: string; dropoffBuilding: string; dropoffStairs: string;
+  pickup: string; pickupUnit: string; pickupBuilding: string; pickupBuildingOther: string; pickupStairs: string;
+  dropoff: string; dropoffUnit: string; dropoffBuilding: string; dropoffBuildingOther: string; dropoffStairs: string;
   fragile: boolean | null; description: string; date: string; time: string;
   savedAt: number;
 };

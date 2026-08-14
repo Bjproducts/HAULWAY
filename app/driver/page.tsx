@@ -323,10 +323,17 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
       {job.status !== "completed" && job.status !== "cancelled" && <div className="op-action-context"><span>NEXT ACTION</span><small>Customer updates automatically</small></div>}
       {job.status === "requested" && <button className="op-accept" disabled={busy} onClick={() => void action("approve_request")}>Accept this request<span aria-hidden="true">→</span></button>}
 
-      {job.status !== "requested" && job.status !== "completed" && job.status !== "cancelled" && !job.driverArrived && <div className="op-eta">
-        <label><input ref={etaInput} type="number" inputMode="numeric" min="1" max="360" value={etaMinutes} onChange={(event) => { etaTouched.current = true; setEtaMinutes(event.target.value.replace(/\D/g, "").slice(0, 3)); }} placeholder="25" aria-label="Estimated arrival in minutes" /><span>MIN</span></label>
-        <button disabled={busy || !etaMinutes || Number(etaMinutes) < 1 || Number(etaMinutes) > 360} onClick={() => void action("set_eta", { etaMinutes: Number(etaMinutes) })}>{job.etaDueAt ? "Update" : "Start ETA"}</button>
-      </div>}
+      {job.status !== "requested" && job.status !== "completed" && job.status !== "cancelled" && !job.driverArrived && <section className={`op-eta-panel ${job.etaDueAt ? "running" : ""}`}>
+        <div className="op-eta-heading">
+          <span><small>{job.etaDueAt ? "COUNTDOWN RUNNING" : "CUSTOMER ETA"}</small><strong>{job.etaDueAt ? `${etaLabel(job)} remaining` : "Start the customer’s timer"}</strong></span>
+          {job.etaDueAt && <i aria-hidden="true" />}
+        </div>
+        <div className="op-eta">
+          <label><input ref={etaInput} type="number" inputMode="numeric" min="1" max="360" value={etaMinutes} onChange={(event) => { etaTouched.current = true; setEtaMinutes(event.target.value.replace(/\D/g, "").slice(0, 3)); }} placeholder="25" aria-label="Estimated arrival in minutes" /><span>MIN</span></label>
+          <button disabled={busy || !etaMinutes || Number(etaMinutes) < 1 || Number(etaMinutes) > 360} onClick={() => void action("set_eta", { etaMinutes: Number(etaMinutes) })}>{job.etaDueAt ? "Change timer" : "Start timer"}</button>
+        </div>
+        <p>The customer’s countdown updates automatically.</p>
+      </section>}
 
       {(job.status === "approved" || job.status === "quoted") && <div className="op-quote">
         <label><span>$</span><input inputMode="decimal" value={quote} onChange={(event) => { quoteTouched.current = true; setQuote(event.target.value.replace(/[^\d.]/g, "")); }} placeholder="0.00" /></label>

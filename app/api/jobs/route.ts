@@ -1,6 +1,6 @@
 import { getStorage, getSupabase, getSupabasePublicConfig, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
-import { ACTIVE_JOB_STATUSES, BUILDING_TYPES, MAX_ACTIVE_REQUESTS, NEEDS_UNIT, STAIRS_OPTIONS } from "@/lib/contracts";
+import { ACTIVE_JOB_STATUSES, BUILDING_TYPES, MAX_ACTIVE_REQUESTS, NEEDS_BUILDING_DETAIL, NEEDS_UNIT, STAIRS_OPTIONS } from "@/lib/contracts";
 import { flattenJob, mapJob } from "@/lib/jobs";
 import { internalError, jsonError } from "@/lib/responses";
 import { consumeRateLimit, guardMutation } from "@/lib/security";
@@ -71,10 +71,12 @@ export async function POST(request: Request) {
       pickup?: string;
       pickupUnit?: string;
       pickupBuilding?: string;
+      pickupBuildingOther?: string;
       pickupStairs?: string;
       dropoff?: string;
       dropoffUnit?: string;
       dropoffBuilding?: string;
+      dropoffBuildingOther?: string;
       dropoffStairs?: string;
       fragile?: boolean;
       description?: string;
@@ -86,14 +88,20 @@ export async function POST(request: Request) {
     const pickup = textField(body.pickup);
     const dropoff = textField(body.dropoff);
     const description = textField(body.description);
-    const pickupBuilding = oneOf(body.pickupBuilding, BUILDING_TYPES);
+    const pickupBuildingChoice = oneOf(body.pickupBuilding, BUILDING_TYPES);
     const pickupStairs = oneOf(body.pickupStairs, STAIRS_OPTIONS);
-    const dropoffBuilding = oneOf(body.dropoffBuilding, BUILDING_TYPES);
+    const dropoffBuildingChoice = oneOf(body.dropoffBuilding, BUILDING_TYPES);
     const dropoffStairs = oneOf(body.dropoffStairs, STAIRS_OPTIONS);
+    const pickupBuildingOther = textField(body.pickupBuildingOther);
+    const dropoffBuildingOther = textField(body.dropoffBuildingOther);
+    if (pickupBuildingChoice === NEEDS_BUILDING_DETAIL && (!pickupBuildingOther || pickupBuildingOther.length > 33)) return jsonError("Describe the pickup building.");
+    if (serviceType === "move" && dropoffBuildingChoice === NEEDS_BUILDING_DETAIL && (!dropoffBuildingOther || dropoffBuildingOther.length > 33)) return jsonError("Describe the drop-off building.");
+    const pickupBuilding = pickupBuildingChoice === NEEDS_BUILDING_DETAIL ? `${NEEDS_BUILDING_DETAIL}: ${pickupBuildingOther}` : pickupBuildingChoice;
+    const dropoffBuilding = dropoffBuildingChoice === NEEDS_BUILDING_DETAIL ? `${NEEDS_BUILDING_DETAIL}: ${dropoffBuildingOther}` : dropoffBuildingChoice;
     const fragile = typeof body.fragile === "boolean" ? body.fragile : null;
     /* Only meaningful for an apartment — drop it otherwise so the row stays honest. */
-    const pickupUnit = pickupBuilding === NEEDS_UNIT ? unitField(body.pickupUnit) : null;
-    const dropoffUnit = dropoffBuilding === NEEDS_UNIT ? unitField(body.dropoffUnit) : null;
+    const pickupUnit = pickupBuildingChoice === NEEDS_UNIT ? unitField(body.pickupUnit) : null;
+    const dropoffUnit = dropoffBuildingChoice === NEEDS_UNIT ? unitField(body.dropoffUnit) : null;
     const scheduledDate = textField(body.scheduledDate);
     const scheduledTime = normalizeTime(textField(body.scheduledTime));
     if (serviceType !== "junk" && serviceType !== "move") return jsonError("Choose a service.");
