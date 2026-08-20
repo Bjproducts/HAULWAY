@@ -79,7 +79,13 @@ export async function readJsonBody<T>(request: Request, maxBytes = DEFAULT_BODY_
 export async function consumeRateLimit(request: Request, scope: string, limit: number, windowSeconds: number, subject = "") {
   const secret = process.env.RATE_LIMIT_SECRET?.trim() ?? "";
   if (secret.length < 32) throw new ConfigError("RATE_LIMIT_SECRET must contain at least 32 characters.");
-  const key = await sha256(`${secret}:${scope}:${clientIp(request)}:${subject}`);
+
+  /* A subject-scoped limit keys on the subject alone. Mixing the caller IP into
+     the key turned the per-phone OTP cap into a per-(IP, phone) cap, which anyone
+     rotating IPs bypasses to bomb a single number at our Twilio expense. Scopes
+     with no subject are the IP-scoped ones and still key on the address. */
+  const identity = subject || clientIp(request);
+  const key = await sha256(`${secret}:${scope}:${identity}`);
   const { data, error } = await getSupabase().rpc("consume_rate_limit", {
     p_key: key,
     p_limit: limit,
@@ -87,6 +93,18 @@ export async function consumeRateLimit(request: Request, scope: string, limit: n
   });
   throwDatabaseError(error);
   return data === true;
+}
+
+/* Hands an attempt back when the work it guarded never happened — an SMS the
+   provider refused, say. Without this a provider outage silently spends the
+   customer's quota and locks them out of retrying once it recovers. */
+export async function refundRateLimit(request: Request, scope: string, subject = "") {
+  const secret = process.env.RATE_LIMIT_SECRET?.trim() ?? "";
+  if (secret.length < 32) return;
+  const identity = subject || clientIp(request);
+  const key = await sha256(`${secret}:${scope}:${identity}`);
+  const { error } = await getSupabase().rpc("refund_rate_limit", { p_key: key });
+  if (error) console.error("[security:rate-limit-refund]", error.message);
 }
 
 export async function requestFingerprint(request: Request) {

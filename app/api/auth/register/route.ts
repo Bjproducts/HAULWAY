@@ -1,7 +1,7 @@
 import { getSupabaseAuth } from "@/db";
 import { normalizePhone } from "@/lib/auth";
 import { internalError, jsonError } from "@/lib/responses";
-import { consumeRateLimit, guardMutation, readJsonBody } from "@/lib/security";
+import { consumeRateLimit, guardMutation, readJsonBody, refundRateLimit } from "@/lib/security";
 
 export async function POST(request: Request) {
   const blocked = guardMutation(request);
@@ -25,6 +25,13 @@ export async function POST(request: Request) {
     });
     if (error) {
       console.error("[auth:send-otp]", error.message);
+      /* No code was sent, so the attempt should not count against the customer.
+         Otherwise a provider outage burns their hourly quota and locks them out
+         of retrying once it is fixed. */
+      await Promise.all([
+        refundRateLimit(request, "customer-otp-ip"),
+        refundRateLimit(request, "customer-otp-phone", phone),
+      ]);
       const status = error.status === 429 ? 429 : 502;
       return jsonError(status === 429 ? "Please wait before requesting another code." : "We could not send the code. Try again.", status);
     }
