@@ -34,7 +34,6 @@ export default function CustomerApp() {
   const [notice, setNotice] = useState("");
   const [updates, setUpdates] = useState<InAppUpdate[]>([]);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [otpRequired, setOtpRequired] = useState(true);
   const [draft, setDraft] = useState<Draft | null>(readDraft);
   /* Lazy initialiser: readSeen guards its own storage access, so it safely returns
      {} during SSR and the real map on the client. */
@@ -101,9 +100,8 @@ export default function CustomerApp() {
       .then(([data]) => {
         if (!active) return;
         sessionStorage.setItem("hw_splash", "1");
-        const payload = data as { customer: Customer | null; otpRequired?: boolean };
+        const payload = data as { customer: Customer | null };
         const next = payload.customer;
-        setOtpRequired(payload.otpRequired !== false);
         setCustomer(next);
         if (next) void refreshJobs().finally(() => active && setScreen("app"));
         else setScreen("auth");
@@ -201,7 +199,7 @@ export default function CustomerApp() {
   const unread = (job: Job) => (job.messageCount ?? 0) > (seen[job.id] ?? 0);
 
   if (screen === "boot") return <Splash />;
-  if (screen === "auth") return <Registration otpRequired={otpRequired} onRegistered={(next) => { setCustomer(next); setScreen("app"); void refreshJobs(); }} />;
+  if (screen === "auth") return <Registration onRegistered={(next) => { setCustomer(next); setScreen("app"); void refreshJobs(); }} />;
   if (screen === "request" && customer) {
     return <RequestFlow
       service={service}
@@ -754,7 +752,7 @@ function RatingPrompt({ busy, exit, paymentMethod, paymentStatus, amount, onRate
     <div className={`rating-payment ${paymentStatus}`}>
       <span><small>{paymentStatus === "paid" ? "PAYMENT RECEIVED" : "PAYMENT METHOD"}</small><strong>{paymentMethod === "interac" ? "Interac e-Transfer" : "Cash"}{amount ? ` · ${money(amount)}` : ""}</strong></span>
       {paymentMethod === "interac" && paymentStatus !== "paid"
-        ? <a href={`mailto:${INTERAC_EMAIL}`}>{INTERAC_EMAIL}</a>
+        ? INTERAC_EMAIL ? <a href={`mailto:${INTERAC_EMAIL}`}>{INTERAC_EMAIL}</a> : <em>Contact Haulway for payment instructions</em>
         : <em>{paymentStatus === "paid" ? "Received ✓" : "Pay your driver directly"}</em>}
     </div>
     <div className="rating-stars" role="group" aria-label="Rate your haul from 1 to 5 stars">
@@ -808,7 +806,7 @@ function Splash() {
   return <main className="splash-screen"><div className="splash-route route-a" /><div className="splash-route route-b" /><Logo light /><h1>Junk gone.<br />Small moves made simple.</h1><span className="splash-loader"><i /></span></main>;
 }
 
-function Registration({ otpRequired, onRegistered }: { otpRequired: boolean; onRegistered: (customer: Customer) => void }) {
+function Registration({ onRegistered }: { onRegistered: (customer: Customer) => void }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -824,19 +822,9 @@ function Registration({ otpRequired, onRegistered }: { otpRequired: boolean; onR
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
-  /* Until SMS is funded the server runs the unverified route; the OTP screens
-     below stay in place and switch back on the moment it is re-enabled. */
-  async function signInDirect() {
-    setBusy(true); setError("");
-    try {
-      const data = await fetch("/api/auth/direct", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone }) }).then(readJson) as { customer: Customer };
-      onRegistered(data.customer);
-    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
-  }
-
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (stage === "details") return void (otpRequired ? sendCode() : signInDirect());
+    if (stage === "details") return void sendCode();
     setBusy(true); setError("");
     try {
       const data = await fetch("/api/auth/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone, code }) }).then(readJson) as { customer: Customer };
@@ -850,10 +838,10 @@ function Registration({ otpRequired, onRegistered }: { otpRequired: boolean; onR
       <span className="micro-label">{stage === "details" ? "WELCOME" : "VERIFY YOUR NUMBER"}</span>
       <h1>{stage === "details" ? <>Clear space.<br /><em>Keep moving.</em></> : <>Check your<br /><em>messages.</em></>}</h1>
       <p>{stage === "details"
-        ? otpRequired ? "Tell us where to text your secure sign-in code." : "Name and number. That's it."
+        ? "Tell us where to text your secure sign-in code."
         : <>We sent a 6-digit code to <strong>{phone}</strong>.</>}</p>
       <div className="auth-trust" aria-label="Registration benefits">
-        <span>{otpRequired ? "✓ SMS verified" : "✓ Edmonton owned"}</span><span>✓ No password</span>
+        <span>✓ SMS verified</span><span>✓ No password</span>
       </div>
       {stage === "details" ? <>
         <label>Your name<input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your full name" /></label>
@@ -868,11 +856,11 @@ function Registration({ otpRequired, onRegistered }: { otpRequired: boolean; onR
       {error && <p className="field-error" role="alert">{error}</p>}
       <button className="hw-primary wide" disabled={busy}>
         {busy
-          ? stage === "details" ? (otpRequired ? "Sending…" : "Signing in…") : "Verifying…"
-          : stage === "details" ? (otpRequired ? "Text me a code →" : "Continue →") : "Verify & continue →"}
+          ? stage === "details" ? "Sending…" : "Verifying…"
+          : stage === "details" ? "Text me a code →" : "Verify & continue →"}
       </button>
       <small>{stage === "details"
-        ? otpRequired ? "Standard message rates may apply." : "Your details are saved securely for your requests."
+        ? "Standard message rates may apply."
         : "Codes expire quickly and can only be used once."}</small>
     </form>
   </main>;
@@ -1257,7 +1245,9 @@ function wait(ms: number) { return new Promise((resolve) => window.setTimeout(re
 function paymentSummary(method: "interac" | "cash", status: "unpaid" | "paid", amount: number | null) {
   const price = amount ? ` ${money(amount)}` : "";
   if (status === "paid") return `${price.trim() || "Payment"} received by Haulway.`;
-  return method === "interac" ? `Send${price} to ${INTERAC_EMAIL}.` : `Pay${price} directly to your driver.`;
+  return method === "interac"
+    ? INTERAC_EMAIL ? `Send${price} to ${INTERAC_EMAIL}.` : "Contact Haulway for verified Interac instructions."
+    : `Pay${price} directly to your driver.`;
 }
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function localDate() { const date = new Date(); const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 10); }

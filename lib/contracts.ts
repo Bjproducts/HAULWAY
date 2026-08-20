@@ -1,5 +1,8 @@
-/* Where customers send an Interac e-Transfer once a job is confirmed complete. */
-export const INTERAC_EMAIL = "jbuoapu@gmail.com";
+/* Public by design: customers need the business-controlled Interac destination.
+   Keeping it in deployment configuration prevents a personal account from being
+   silently baked into source and every release. */
+export const INTERAC_EMAIL = process.env.NEXT_PUBLIC_INTERAC_EMAIL?.trim() ?? "";
+export const PRIVACY_CONTACT_EMAIL = process.env.NEXT_PUBLIC_PRIVACY_CONTACT_EMAIL?.trim() ?? "";
 
 /* Shared so the form and the API agree on what a valid answer looks like. */
 export const BUILDING_TYPES = ["House", "Apartment", "Townhouse", "Commercial", "Other"] as const;
@@ -33,6 +36,7 @@ export type JobMedia = {
 
 export type Job = {
   id: string;
+  assignedOperatorId: string | null;
   customer: Customer;
   serviceType: "junk" | "move";
   item: string;

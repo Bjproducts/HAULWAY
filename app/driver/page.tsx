@@ -8,10 +8,21 @@ import { INTERAC_EMAIL, money, shortDate } from "@/lib/contracts";
 import { Composer, MessageList, useStickyScroll } from "../chat-ui";
 import { errorMessage, readJson } from "../http";
 import { SwipeAction } from "../swipe-action";
+import { DriverManagement } from "./driver-management";
+import type { ApprovedDriver } from "./driver-management";
 
 type Gate = "boot" | "setup" | "login" | "dashboard";
 type Filter = "new" | "active" | "done";
 type Pane = "job" | "chat";
+type DashboardView = "jobs" | "drivers";
+type OperatorProfile = {
+  id: string;
+  displayName: string;
+  email: string;
+  phone: string | null;
+  accessRole: "admin" | "driver";
+  isOwner: boolean;
+};
 
 const FILTERS: Array<{ id: Filter; label: string; match: (job: Job) => boolean }> = [
   { id: "new", label: "New", match: (job) => job.status === "requested" },
@@ -31,6 +42,9 @@ export default function DriverPortal() {
   const [filter, setFilter] = useState<Filter>("new");
   const [accepting, setAccepting] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [operator, setOperator] = useState<OperatorProfile | null>(null);
+  const [dashboardView, setDashboardView] = useState<DashboardView>("jobs");
+  const [pendingApplications, setPendingApplications] = useState(0);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -45,7 +59,9 @@ export default function DriverPortal() {
 
   useEffect(() => {
     operatorFetch("/api/operator/session").then((data) => {
-      const session = data as { configured: boolean; authenticated: boolean };
+      const session = data as { configured: boolean; authenticated: boolean; operator: OperatorProfile | null };
+      setOperator(session.operator);
+      if (session.operator?.accessRole === "driver") setFilter("active");
       setGate(session.authenticated ? "dashboard" : session.configured ? "login" : "setup");
     }).catch((caught) => { setError(errorMessage(caught)); setGate("login"); });
   }, []);
@@ -64,6 +80,13 @@ export default function DriverPortal() {
     return () => { active = false; window.clearInterval(timer); };
   }, [gate]);
 
+  useEffect(() => {
+    if (gate !== "dashboard" || operator?.accessRole !== "admin") return;
+    operatorFetch("/api/driver/applications")
+      .then((data) => setPendingApplications((data as { applications: Array<{ status: string }> }).applications.filter((entry) => entry.status === "pending").length))
+      .catch(() => undefined);
+  }, [gate, operator?.accessRole]);
+
   const counts = useMemo(() => ({
     new: jobs.filter(FILTERS[0].match).length,
     active: jobs.filter(FILTERS[1].match).length,
@@ -72,7 +95,17 @@ export default function DriverPortal() {
 
   async function logout() {
     await fetch("/api/operator/logout", { method: "POST" });
-    setJobs([]); setOpenId(null); setGate("login");
+    setJobs([]); setOpenId(null); setOperator(null); setDashboardView("jobs"); setGate("login");
+  }
+
+  async function finishAuthentication() {
+    try {
+      const data = await operatorFetch("/api/operator/session") as { authenticated: boolean; operator: OperatorProfile | null };
+      if (!data.authenticated || !data.operator) throw new Error("The secure session could not be started.");
+      setOperator(data.operator);
+      setFilter(data.operator.accessRole === "driver" ? "active" : "new");
+      setError(""); setGate("dashboard");
+    } catch (caught) { setError(errorMessage(caught)); setGate("login"); }
   }
 
   /* Accepting is the driver committing to the job, so land them on it — ETA and
@@ -89,26 +122,32 @@ export default function DriverPortal() {
   }
 
   if (gate === "boot") return <main className="op-boot"><OperatorLogo /><span className="op-loader"><i /></span></main>;
-  if (gate === "setup" || gate === "login") return <OperatorGate mode={gate} error={error} onError={setError} onSuccess={() => { setError(""); setGate("dashboard"); }} />;
+  if (gate === "setup" || gate === "login") return <OperatorGate mode={gate} error={error} onError={setError} onSuccess={() => void finishAuthentication()} />;
 
-  if (openId) return <OperatorJob jobId={openId} onBack={() => { setOpenId(null); void loadJobs(); }} onChanged={loadJobs} />;
+  if (openId && operator) return <OperatorJob jobId={openId} operator={operator} onBack={() => { setOpenId(null); void loadJobs(); }} onChanged={loadJobs} />;
 
+  const admin = operator?.accessRole === "admin";
+  const availableFilters = admin ? FILTERS : FILTERS.filter((entry) => entry.id !== "new");
   const visible = jobs.filter(FILTERS.find((entry) => entry.id === filter)!.match);
   return <div className="op-shell">
     <header className="op-bar">
+      {dashboardView === "drivers" && <button className="op-back" onClick={() => setDashboardView("jobs")} aria-label="Back to jobs">←</button>}
       <OperatorLogo />
-      <span className="op-online"><i />Open</span>
+      <span className="op-online"><i />{admin ? "Admin" : "Driver"}</span>
+      {admin && dashboardView === "jobs" && <button className="op-manage" onClick={() => setDashboardView("drivers")} aria-label="Manage drivers">Drivers{pendingApplications > 0 && <i>{pendingApplications}</i>}</button>}
       <button className="op-signout" onClick={() => void logout()} aria-label="Sign out">↪</button>
     </header>
 
+    {dashboardView === "drivers" && admin ? <DriverManagement isOwner={Boolean(operator?.isOwner)} onPendingChange={setPendingApplications} /> : <>
+
     <div className="op-top">
-      <div className="op-metrics">
-        <div><small>NEW</small><strong>{counts.new}</strong></div>
+      <div className={`op-metrics ${admin ? "" : "driver"}`}>
+        {admin && <div><small>NEW</small><strong>{counts.new}</strong></div>}
         <div><small>ACTIVE</small><strong>{counts.active}</strong></div>
         <div><small>DONE</small><strong>{counts.done}</strong></div>
       </div>
-      <div className="op-filters" role="tablist">
-        {FILTERS.map((entry) => <button key={entry.id} role="tab" aria-selected={filter === entry.id} className={filter === entry.id ? "active" : ""} onClick={() => setFilter(entry.id)}>
+      <div className={`op-filters ${admin ? "" : "driver"}`} role="tablist">
+        {availableFilters.map((entry) => <button key={entry.id} role="tab" aria-selected={filter === entry.id} className={filter === entry.id ? "active" : ""} onClick={() => setFilter(entry.id)}>
           {entry.label}<i>{counts[entry.id]}</i>
         </button>)}
       </div>
@@ -131,7 +170,7 @@ export default function DriverPortal() {
           </span>
         </button>
         {/* Taking a job from the list drops the driver straight into it. */}
-        {job.status === "requested" && <button className="op-card-accept" disabled={accepting === job.id} onClick={() => void acceptJob(job.id)}>
+        {admin && job.status === "requested" && <button className="op-card-accept" disabled={accepting === job.id} onClick={() => void acceptJob(job.id)}>
           {accepting === job.id ? "Accepting…" : "Accept this request"}<span aria-hidden="true">→</span>
         </button>}
       </div>) : <div className="op-empty">
@@ -140,53 +179,151 @@ export default function DriverPortal() {
         <small>{filter === "new" ? "New customer requests land here automatically." : filter === "active" ? "Accepted jobs show up here." : "Completed and cancelled jobs collect here."}</small>
       </div>}
     </main>
+    </>}
   </div>;
 }
 
 /* ---------- gate ---------- */
 
 function OperatorGate({ mode, error, onError, onSuccess }: { mode: "setup" | "login"; error: string; onError: (error: string) => void; onSuccess: () => void }) {
-  const [pin, setPin] = useState("");
+  const [loginKind, setLoginKind] = useState<"admin" | "driver">("admin");
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [setupToken, setSetupToken] = useState("");
+  const [totpSecret] = useState(() => mode === "setup" ? generateTotpSecret() : "");
+  const [totpCode, setTotpCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault(); onError("");
-    if (!/^\d{6}$/.test(pin)) return onError("Enter a 6-digit PIN.");
-    if (mode === "setup" && pin !== confirm) return onError("The PINs do not match.");
+    if (!email.trim()) return onError("Enter your operator email.");
+    if (password.length < 14) return onError("Use a passphrase of at least 14 characters.");
+    if (!/^\d{6}$/.test(totpCode)) return onError("Enter the 6-digit code from your authenticator app.");
+    if (mode === "setup" && displayName.trim().length < 2) return onError("Enter the operator's full name.");
+    if (mode === "setup" && password !== confirm) return onError("The passphrases do not match.");
     setBusy(true);
-    try { await fetch(`/api/operator/${mode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, setupToken }) }).then(readJson); onSuccess(); }
+    const payload = mode === "setup"
+      ? { displayName, email, password, setupToken, totpSecret, totpCode }
+      : { email, password, totpCode };
+    try { await fetch(`/api/operator/${mode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(readJson); onSuccess(); }
     catch (caught) { onError(errorMessage(caught)); } finally { setBusy(false); }
   }
+
+  if (mode === "login" && loginKind === "driver") return <main className="op-gate">
+    <div className="op-gate-top"><OperatorLogo /></div>
+    <div className="op-gate-sheet">
+      <LoginKindTabs value={loginKind} onChange={(value) => { onError(""); setLoginKind(value); }} />
+      <DriverSmsLogin error={error} onError={onError} onSuccess={onSuccess} />
+    </div>
+  </main>;
 
   return <main className="op-gate">
     <div className="op-gate-top"><OperatorLogo /></div>
     <form className="op-gate-sheet" onSubmit={submit}>
+      {mode === "login" && <LoginKindTabs value={loginKind} onChange={(value) => { onError(""); setLoginKind(value); }} />}
       <span className="op-gate-icon">H</span>
       <span className="micro-label">{mode === "setup" ? "FIRST-TIME SETUP" : "OPERATOR SIGN IN"}</span>
       <h1>{mode === "setup" ? "Secure your portal." : "Welcome back."}</h1>
-      <p>{mode === "setup" ? "Create the private PIN you'll use to manage Haulway jobs." : "Enter your private operator PIN."}</p>
+      <p>{mode === "setup" ? "Create a named account with a strong passphrase and authenticator verification." : "Use your named operator account and authenticator app."}</p>
       {mode === "setup" && <label>Private setup token
         <input className="op-setup-token" type="password" autoComplete="off" value={setupToken} onChange={(event) => setSetupToken(event.target.value)} placeholder="From your environment settings" />
       </label>}
-      <label>{mode === "setup" ? "Create a 6-digit PIN" : "6-digit PIN"}
-        <input className="op-code" type="password" inputMode="numeric" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, ""))} placeholder="••••••" />
+      {mode === "setup" && <label>Operator name
+        <input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Full name" />
       </label>
-      {mode === "setup" && <label>Confirm PIN
-        <input className="op-code" type="password" inputMode="numeric" maxLength={6} value={confirm} onChange={(event) => setConfirm(event.target.value.replace(/\D/g, ""))} placeholder="••••••" />
+      }
+      <label>Operator email
+        <input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="operator@d-load.ca" />
+      </label>
+      <label>{mode === "setup" ? "Create passphrase" : "Passphrase"}
+        <input type="password" autoComplete={mode === "setup" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 14 characters" />
+      </label>
+      {mode === "setup" && <label>Confirm passphrase
+        <input type="password" autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} placeholder="Repeat the passphrase" />
       </label>}
+      {mode === "setup" && <div className="op-mfa-setup">
+        <strong>Add HAULWAY to your authenticator app</strong>
+        <p>Choose “enter setup key,” name it HAULWAY, then enter this key:</p>
+        <code>{totpSecret || "Generating secure key…"}</code>
+      </div>}
+      <label>Authenticator code
+        <input className="op-code" type="text" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={totpCode} onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" />
+      </label>
       {error && <p className="field-error" role="alert">{error}</p>}
       <button className="hw-primary wide" disabled={busy}>{busy ? "Please wait…" : mode === "setup" ? "Create operator account" : "Sign in"}<span aria-hidden="true">→</span></button>
-      <span className="op-gate-trust">Private access · session protected</span>
+      <span className="op-gate-trust">Named access · MFA protected · 30-minute idle lock</span>
       {mode === "setup" && <small>Do this before sharing the customer website.</small>}
+      {mode === "login" && <a className="op-apply-link" href="/driver/apply">New driver? Apply for approval <span>→</span></a>}
     </form>
   </main>;
 }
 
+function LoginKindTabs({ value, onChange }: { value: "admin" | "driver"; onChange: (value: "admin" | "driver") => void }) {
+  return <div className="op-login-kind" role="tablist" aria-label="Sign-in type">
+    <button type="button" role="tab" aria-selected={value === "admin"} className={value === "admin" ? "active" : ""} onClick={() => onChange("admin")}>Admin</button>
+    <button type="button" role="tab" aria-selected={value === "driver"} className={value === "driver" ? "active" : ""} onClick={() => onChange("driver")}>Driver</button>
+  </div>;
+}
+
+function DriverSmsLogin({ error, onError, onSuccess }: { error: string; onError: (error: string) => void; onSuccess: () => void }) {
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault(); onError(""); setBusy(true);
+    try {
+      if (!sent) {
+        await fetch("/api/driver/auth/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, purpose: "login" }),
+        }).then(readJson);
+        setSent(true);
+      } else {
+        await fetch("/api/driver/auth/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, code, purpose: "login" }),
+        }).then(readJson);
+        onSuccess();
+      }
+    } catch (caught) { onError(errorMessage(caught)); } finally { setBusy(false); }
+  }
+
+  return <form className="op-driver-login" onSubmit={submit}>
+    <span className="op-gate-icon">D</span>
+    <span className="micro-label">APPROVED DRIVERS</span>
+    <h1>{sent ? "Check your messages." : "Your route starts here."}</h1>
+    <p>{sent ? <>Enter the six-digit code sent to <b>{phone}</b>.</> : "Use the mobile number verified on your approved driver application."}</p>
+    {!sent ? <label>Verified mobile number<input required type="tel" autoComplete="tel" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(780) 555-0123" /></label>
+      : <label>SMS code<input required className="op-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" /></label>}
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <button className="hw-primary wide" disabled={busy || (sent && code.length !== 6)}>{busy ? "Please wait…" : sent ? "Secure sign in" : "Send secure code"}<span>→</span></button>
+    {sent && <button className="driver-text-button" type="button" onClick={() => { setSent(false); setCode(""); onError(""); }}>Use a different number</button>}
+    <span className="op-gate-trust">SMS verified · Approved drivers only · 30-minute idle lock</span>
+    <a className="op-apply-link" href="/driver/apply">Not approved yet? Apply to drive <span>→</span></a>
+  </form>;
+}
+
+function generateTotpSecret() {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  let bits = "";
+  for (const byte of bytes) bits += byte.toString(2).padStart(8, "0");
+  let result = "";
+  for (let index = 0; index < bits.length; index += 5) {
+    result += alphabet[Number.parseInt(bits.slice(index, index + 5).padEnd(5, "0"), 2)];
+  }
+  return result;
+}
+
 /* ---------- one job ---------- */
 
-function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () => void; onChanged: () => Promise<Job[]> }) {
+function OperatorJob({ jobId, operator, onBack, onChanged }: { jobId: string; operator: OperatorProfile; onBack: () => void; onChanged: () => Promise<Job[]> }) {
   const [job, setJob] = useState<JobDetails | null>(null);
   const [pane, setPane] = useState<Pane>("job");
   const [quote, setQuote] = useState("");
@@ -197,6 +334,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState<string[]>([]);
+  const [drivers, setDrivers] = useState<ApprovedDriver[]>([]);
   const { ref: chatScrollRef, pinned: chatPinned, jump: jumpToLatest } = useStickyScroll((job?.messages.length ?? 0) + pending.length);
   const quoteTouched = useRef(false);
 
@@ -215,6 +353,11 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
     const timer = window.setInterval(() => void poll(), 5000);
     return () => { active = false; window.clearInterval(timer); };
   }, [jobId]);
+
+  useEffect(() => {
+    if (operator.accessRole !== "admin") return;
+    operatorFetch("/api/operators").then((data) => setDrivers((data as { drivers: ApprovedDriver[] }).drivers.filter((driver) => driver.active))).catch(() => undefined);
+  }, [operator.accessRole]);
 
   async function action(actionName: string, extra: Record<string, unknown> = {}) {
     setBusy(true); setError("");
@@ -271,6 +414,14 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         <span><small>LIVE ETA</small><strong>{etaLabel(job)}</strong></span>
       </div>
 
+      {operator.accessRole === "admin" && job.status !== "requested" && job.status !== "completed" && job.status !== "cancelled" && <label className="op-assignment">
+        <span><small>ASSIGNED DRIVER</small><strong>{drivers.find((driver) => driver.id === job.assignedOperatorId)?.displayName ?? "Choose an approved driver"}</strong></span>
+        <select disabled={busy || !drivers.length} value={job.assignedOperatorId ?? ""} onChange={(event) => { if (event.target.value) void action("assign_driver", { operatorId: event.target.value }); }}>
+          <option value="">Unassigned</option>
+          {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.displayName} · {driver.vehicleType ?? "vehicle"}</option>)}
+        </select>
+      </label>}
+
       {media.length > 0 && <div className="op-media">{media.map((entry) => entry.contentType.startsWith("video/")
         ? <video key={entry.id} src={entry.operatorUrl} controls playsInline />
         : <img key={entry.id} src={entry.operatorUrl} alt={entry.filename} />)}</div>}
@@ -305,9 +456,9 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
 
       {job.status === "completed" && <div className="op-payment">
         <small>PAYMENT</small>
-        <strong>{job.paymentMethod === "interac" ? `Interac e-Transfer to ${INTERAC_EMAIL}` : job.paymentMethod === "cash" ? "Cash on completion" : "Customer has not chosen yet"}</strong>
+        <strong>{job.paymentMethod === "interac" ? INTERAC_EMAIL ? `Interac e-Transfer to ${INTERAC_EMAIL}` : "Interac destination is not configured" : job.paymentMethod === "cash" ? "Cash on completion" : "Customer has not chosen yet"}</strong>
         <span className={job.paymentStatus}>{job.paymentStatus === "paid" ? "Received ✓" : "Waiting"}</span>
-        {job.paymentMethod && job.paymentStatus !== "paid" && <button disabled={busy} onClick={() => void action("mark_paid")}>Mark paid</button>}
+        {operator.accessRole === "admin" && job.paymentMethod && job.paymentStatus !== "paid" && <button disabled={busy} onClick={() => void action("mark_paid")}>Mark paid</button>}
       </div>}
     </main> : <main className="op-chat">
       <div className="chat-scroll" ref={chatScrollRef} role="log" aria-live="polite" aria-label={`Conversation with ${job.customer.name}`}>
@@ -322,7 +473,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
 
     <div className="op-actions">
       {job.status !== "completed" && job.status !== "cancelled" && <div className="op-action-context"><span>NEXT ACTION</span><small>Customer updates automatically</small></div>}
-      {job.status === "requested" && <button className="op-accept" disabled={busy} onClick={() => void action("approve_request")}>Accept this request<span aria-hidden="true">→</span></button>}
+      {operator.accessRole === "admin" && job.status === "requested" && <button className="op-accept" disabled={busy} onClick={() => void action("approve_request")}>Accept this request<span aria-hidden="true">→</span></button>}
 
       {job.status !== "requested" && job.status !== "completed" && job.status !== "cancelled" && !job.driverArrived && <section className={`op-eta-panel ${job.etaDueAt ? "running" : ""}`}>
         <div className="op-eta-heading">
@@ -336,7 +487,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
         <p>The customer’s countdown updates automatically.</p>
       </section>}
 
-      {(job.status === "approved" || job.status === "quoted") && <div className="op-quote">
+      {operator.accessRole === "admin" && (job.status === "approved" || job.status === "quoted") && <div className="op-quote">
         <label><span>$</span><input inputMode="decimal" value={quote} onChange={(event) => { quoteTouched.current = true; setQuote(event.target.value.replace(/[^\d.]/g, "")); }} placeholder="0.00" /></label>
         <button disabled={busy || !quote} onClick={() => void action("send_quote", { amount: Number(quote) })}>{job.quoteCents ? "Update quote" : "Send quote"}</button>
       </div>}

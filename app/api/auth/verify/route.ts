@@ -1,13 +1,13 @@
 import { getSupabase, getSupabaseAuth, throwDatabaseError } from "@/db";
 import { createSession, normalizePhone } from "@/lib/auth";
 import { internalError, jsonError } from "@/lib/responses";
-import { consumeRateLimit, guardMutation } from "@/lib/security";
+import { consumeRateLimit, guardMutation, readJsonBody } from "@/lib/security";
 
 export async function POST(request: Request) {
   const blocked = guardMutation(request);
   if (blocked) return blocked;
   try {
-    const body = await request.json() as { name?: string; phone?: string; code?: string };
+    const body = await readJsonBody<{ name?: string; phone?: string; code?: string }>(request);
     const name = body.name?.trim().replace(/\s+/g, " ") ?? "";
     const phone = normalizePhone(body.phone ?? "");
     const code = body.code?.replace(/\D/g, "") ?? "";

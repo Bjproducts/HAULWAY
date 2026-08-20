@@ -10,14 +10,36 @@ type OutboxRow = {
 };
 
 export async function notifyJobSms(job: JobRow, eventId: string, body: string) {
+  return queueSms({
+    eventId,
+    phone: job.customer_phone,
+    body,
+    jobId: job.id,
+    customerId: job.customer_id,
+  });
+}
+
+export async function notifyDriverApplicationSms(applicationId: string, phone: string, eventId: string, body: string) {
+  return queueSms({ eventId, phone, body, driverApplicationId: applicationId });
+}
+
+async function queueSms(input: {
+  eventId: string;
+  phone: string;
+  body: string;
+  jobId?: string;
+  customerId?: string;
+  driverApplicationId?: string;
+}) {
   try {
     const db = getSupabase();
-    const message = normalizeBody(body);
+    const message = normalizeBody(input.body);
     const { error } = await db.from("sms_outbox").upsert({
-      event_id: eventId,
-      job_id: job.id,
-      customer_id: job.customer_id,
-      phone: job.customer_phone,
+      event_id: input.eventId,
+      job_id: input.jobId ?? null,
+      customer_id: input.customerId ?? null,
+      driver_application_id: input.driverApplicationId ?? null,
+      phone: input.phone,
       body: message,
     }, { onConflict: "event_id", ignoreDuplicates: true });
     throwDatabaseError(error);
@@ -25,7 +47,7 @@ export async function notifyJobSms(job: JobRow, eventId: string, body: string) {
     const { data: queued, error: lookupError } = await db
       .from("sms_outbox")
       .select("id, phone, body, status, attempts")
-      .eq("event_id", eventId)
+      .eq("event_id", input.eventId)
       .maybeSingle();
     throwDatabaseError(lookupError);
     if (queued?.status !== "sent") await deliverSms(queued as OutboxRow);
@@ -37,7 +59,7 @@ export async function notifyJobSms(job: JobRow, eventId: string, body: string) {
 }
 
 export async function dispatchPendingSms(limit = 25) {
-  if (!smsConfigured()) return { configured: false, attempted: 0, sent: 0 };
+  if (!smsDeliveryConfigured()) return { configured: false, attempted: 0, sent: 0 };
   const db = getSupabase();
   const stale = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const { error: recoveryError } = await db.from("sms_outbox").update({ status: "failed", last_error: "Delivery worker interrupted." })
@@ -48,6 +70,7 @@ export async function dispatchPendingSms(limit = 25) {
     .from("sms_outbox")
     .select("id, phone, body, status, attempts")
     .in("status", ["pending", "failed"])
+    .is("delivery_status", null)
     .lt("attempts", 8)
     .order("created_at", { ascending: true })
     .limit(Math.min(Math.max(limit, 1), 100));
@@ -61,7 +84,7 @@ export async function dispatchPendingSms(limit = 25) {
 }
 
 async function deliverSms(row: OutboxRow) {
-  if (!smsConfigured() || row.status === "sent" || row.attempts >= 8) return false;
+  if (!smsDeliveryConfigured() || row.status === "sent" || row.attempts >= 8) return false;
   const db = getSupabase();
   const { data: claimed, error: claimError } = await db
     .from("sms_outbox")
@@ -78,6 +101,7 @@ async function deliverSms(row: OutboxRow) {
     const { error } = await db.from("sms_outbox").update({
       status: "sent",
       provider_id: providerId,
+      delivery_status: "accepted",
       sent_at: new Date().toISOString(),
       last_error: null,
     }).eq("id", row.id);
@@ -98,8 +122,10 @@ async function sendTwilio(to: string, body: string) {
   const params = new URLSearchParams({ To: to, Body: body });
   const serviceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
   const from = process.env.TWILIO_FROM_NUMBER?.trim();
+  const statusCallback = process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
   if (serviceSid) params.set("MessagingServiceSid", serviceSid);
   else params.set("From", from!);
+  if (statusCallback) params.set("StatusCallback", statusCallback);
 
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`, {
     method: "POST",
@@ -114,10 +140,16 @@ async function sendTwilio(to: string, body: string) {
   return result.sid;
 }
 
-function smsConfigured() {
+export function smsDeliveryConfigured() {
   const credentials = Boolean(process.env.TWILIO_ACCOUNT_SID
     && ((process.env.TWILIO_API_KEY && process.env.TWILIO_API_KEY_SECRET) || process.env.TWILIO_AUTH_TOKEN));
-  return credentials && Boolean(process.env.TWILIO_MESSAGING_SERVICE_SID || process.env.TWILIO_FROM_NUMBER);
+  const callback = process.env.TWILIO_STATUS_CALLBACK_URL?.trim() ?? "";
+  let callbackValid = false;
+  try { callbackValid = new URL(callback).protocol === "https:"; } catch { /* invalid callback */ }
+  return credentials
+    && Boolean(process.env.TWILIO_AUTH_TOKEN)
+    && Boolean(process.env.TWILIO_MESSAGING_SERVICE_SID || process.env.TWILIO_FROM_NUMBER)
+    && callbackValid;
 }
 
 function normalizeBody(value: string) {

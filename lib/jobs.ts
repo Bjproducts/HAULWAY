@@ -1,9 +1,11 @@
 import { getSupabase, throwDatabaseError } from "@/db";
 import type { AuthSession } from "@/lib/auth";
+import { PublicError } from "@/lib/responses";
 
 export type JobRow = {
   id: string;
   customer_id: string;
+  assigned_operator_id: string | null;
   customer_name: string;
   customer_phone: string;
   service_type: "junk" | "move";
@@ -66,7 +68,9 @@ export async function getJobRow(id: string) {
 }
 
 export function canAccessJob(session: AuthSession, job: JobRow) {
-  return session.role === "operator" || job.customer_id === session.subjectId;
+  if (session.role === "customer") return job.customer_id === session.subjectId;
+  if (session.operator?.accessRole === "admin") return true;
+  return job.assigned_operator_id === session.subjectId;
 }
 
 export async function getJobDetails(id: string) {
@@ -122,6 +126,7 @@ export function mapJob(job: JobRow) {
   const etaDueAt = etaDeadline(job.eta);
   return {
     id: job.id,
+    assignedOperatorId: job.assigned_operator_id,
     customer: { id: job.customer_id, name: job.customer_name, phone: job.customer_phone },
     serviceType: job.service_type,
     item: job.item,
@@ -173,7 +178,14 @@ export async function addSystemMessage(jobId: string, body: string) {
   return id;
 }
 
-export async function updateJob(id: string, values: Record<string, string | number | boolean | null>) {
-  const { error } = await getSupabase().from("jobs").update(values).eq("id", id);
+export async function updateJobVersioned(id: string, expectedUpdatedAt: string, values: Record<string, string | number | boolean | null>) {
+  const { data, error } = await getSupabase().from("jobs")
+    .update(values)
+    .eq("id", id)
+    .eq("updated_at", expectedUpdatedAt)
+    .select("updated_at")
+    .maybeSingle();
   throwDatabaseError(error);
+  if (!data) throw new PublicError("This haul changed while you were acting. Refresh and try again.", 409);
+  return data.updated_at as string;
 }

@@ -2,22 +2,10 @@ import { getStorage, getSupabase, getSupabasePublicConfig, throwDatabaseError } 
 import { getApiSession } from "@/lib/auth";
 import { ACTIVE_JOB_STATUSES, BUILDING_TYPES, MAX_ACTIVE_REQUESTS, NEEDS_BUILDING_DETAIL, NEEDS_UNIT, STAIRS_OPTIONS } from "@/lib/contracts";
 import { flattenJob, mapJob } from "@/lib/jobs";
+import { MAX_FILE_BYTES, MAX_TOTAL_BYTES, mediaDeclarationAllowed, safeExtension } from "@/lib/media";
 import { internalError, jsonError } from "@/lib/responses";
-import { consumeRateLimit, guardMutation } from "@/lib/security";
-
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 60 * 1024 * 1024;
-const ALLOWED_MEDIA = new Map<string, Set<string>>([
-  ["image/jpeg", new Set([".jpg", ".jpeg"])],
-  ["image/png", new Set([".png"])],
-  ["image/webp", new Set([".webp"])],
-  ["image/gif", new Set([".gif"])],
-  ["image/heic", new Set([".heic"])],
-  ["image/heif", new Set([".heif"])],
-  ["video/mp4", new Set([".mp4", ".m4v"])],
-  ["video/quicktime", new Set([".mov"])],
-  ["video/webm", new Set([".webm"])],
-]);
+import { consumeRateLimit, guardMutation, readJsonBody } from "@/lib/security";
+import { smsDeliveryConfigured } from "@/lib/sms";
 
 type MediaInput = {
   filename?: string;
@@ -34,9 +22,10 @@ export async function GET(request: Request) {
     .select("*, customers!inner(name, phone)")
     .eq("upload_complete", true)
     .order("created_at", { ascending: false });
-  /* A cancelled request disappears for the customer; the operator keeps seeing it
-     so they know a job they may have started is off. */
+  /* A cancelled request disappears for the customer. Admins can dispatch every
+     job; a driver account receives only explicitly assigned jobs. */
   if (!operator) query = query.eq("customer_id", session.subjectId).neq("status", "cancelled");
+  else if (session.operator?.accessRole === "driver") query = query.eq("assigned_operator_id", session.subjectId);
   const { data, error } = await query;
   throwDatabaseError(error);
   const rows = (data ?? []).map((job) => flattenJob(job as Parameters<typeof flattenJob>[0]));
@@ -63,10 +52,11 @@ export async function POST(request: Request) {
   if (blocked) return blocked;
   const session = await getApiSession(request);
   if (!session || session.role !== "customer") return jsonError("Please sign in as a customer.", 401);
+  if (!smsDeliveryConfigured()) return jsonError("Booking is temporarily unavailable while secure SMS updates are being configured.", 503);
 
   let insertedJobId: string | null = null;
   try {
-    const body = await request.json() as {
+    const body = await readJsonBody<{
       serviceType?: string;
       pickup?: string;
       pickupUnit?: string;
@@ -83,7 +73,7 @@ export async function POST(request: Request) {
       scheduledDate?: string;
       scheduledTime?: string;
       media?: MediaInput[];
-    };
+    }>(request, 96 * 1024);
     const serviceType = textField(body.serviceType);
     const pickup = textField(body.pickup);
     const dropoff = textField(body.dropoff);
@@ -119,7 +109,7 @@ export async function POST(request: Request) {
     const media = Array.isArray(body.media) ? body.media.map(normalizeMedia) : [];
     if (!media.length || !media.some((file) => file.contentType.startsWith("image/"))) return jsonError("Add at least one photo.");
     if (media.length > 8) return jsonError("Upload up to 8 photos or videos.");
-    if (media.some((file) => !ALLOWED_MEDIA.get(file.contentType)?.has(safeExtension(file.filename)))) return jsonError("Use a supported photo or video format.");
+    if (media.some((file) => !mediaDeclarationAllowed(file.filename, file.contentType))) return jsonError("Use a supported photo or video format.");
     if (media.some((file) => file.sizeBytes > MAX_FILE_BYTES)) return jsonError("Each file must be 25 MB or smaller.");
     if (media.reduce((total, file) => total + file.sizeBytes, 0) > MAX_TOTAL_BYTES) return jsonError("Uploads must total 60 MB or less.");
 
@@ -255,9 +245,4 @@ function validScheduledDate(value: string) {
   const today = Date.parse(`${serviceToday()}T12:00:00Z`);
   if (Number.isNaN(selected) || Number.isNaN(today)) return false;
   return selected >= today && selected <= today + 366 * 24 * 60 * 60 * 1000;
-}
-
-function safeExtension(filename: string) {
-  const match = filename.toLowerCase().match(/\.[a-z0-9]{1,8}$/);
-  return match?.[0] ?? "";
 }
