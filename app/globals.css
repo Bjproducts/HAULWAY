@@ -257,7 +257,10 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 /* Scoped under .auth-sheet so it outranks the generic `.auth-sheet input` rule
    on specificity rather than with !important. */
 .auth-sheet .auth-code { text-align: center; font-family: var(--font-mono); font-size: var(--t-2xl); font-weight: 800; letter-spacing: .34em; padding-left: calc(var(--s4) + .34em); }
-.auth-code-actions { display: flex; justify-content: space-between; gap: var(--s3); margin: calc(var(--s2) * -1) 0 var(--s4); }
+.auth-code-actions { display: flex; justify-content: space-between; gap: var(--s3); margin: calc(var(--s2) * -1) 0 var(--s2); }
+.auth-code-actions button.waiting { color: var(--ink-3); cursor: default; font-variant-numeric: tabular-nums; }
+.auth-code-actions button:disabled { opacity: 1; }
+.auth-resend-note { margin: 0 0 var(--s4); color: var(--ink-3); font-size: var(--t-xs); line-height: 1.45; }
 .auth-code-actions button { min-height: var(--h-sm); padding: 0; border: 0; background: none; color: var(--forest); font-size: var(--t-xs); font-weight: 750; cursor: pointer; }
 
 /* ---------- app shell ---------- */

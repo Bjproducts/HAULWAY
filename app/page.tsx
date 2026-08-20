@@ -16,6 +16,11 @@ type Service = "junk" | "move";
 type Upload = { id: string; file: File; url: string; kind: "image" | "video" };
 type InAppUpdate = { id: number; jobId: string; title: string; detail: string; icon: string };
 
+/* Long enough that a code has realistically had time to arrive, short enough that
+   someone with genuine signal trouble is not stranded. */
+const RESEND_SECONDS = 45;
+const countdown = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+
 /* A customer can back out until they have accepted a quote — mirrors the API guard. */
 const CANCELLABLE = new Set(["requested", "approved", "quoted"]);
 const FINISHED = new Set(["completed", "cancelled"]);
@@ -813,12 +818,23 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
   const [stage, setStage] = useState<"details" | "code">("details");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Only three codes an hour reach a number. Without a visible cooldown people
+     tap "Send again" repeatedly, spend the whole allowance in seconds and lock
+     themselves out of the number they are trying to verify. */
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setTimeout(() => setCooldown((seconds) => seconds - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
 
   async function sendCode() {
     setBusy(true); setError("");
     try {
       await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone }) }).then(readJson);
       setStage("code");
+      setCooldown(RESEND_SECONDS);
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
@@ -849,9 +865,16 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
       </> : <>
         <label>Verification code<input className="auth-code" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" /></label>
         <div className="auth-code-actions">
-          <button type="button" onClick={() => { setStage("details"); setCode(""); setError(""); }}>Change number</button>
-          <button type="button" disabled={busy} onClick={() => void sendCode()}>Send again</button>
+          <button type="button" onClick={() => { setStage("details"); setCode(""); setError(""); setCooldown(0); }}>Change number</button>
+          <button type="button" className={cooldown > 0 ? "waiting" : ""} disabled={busy || cooldown > 0} onClick={() => void sendCode()}>
+            {cooldown > 0 ? `Send again in ${countdown(cooldown)}` : "Send again"}
+          </button>
         </div>
+        <p className="auth-resend-note" role="status" aria-live="polite">
+          {cooldown > 0
+            ? `Didn't get it? You can request another code in ${countdown(cooldown)}.`
+            : "Didn't get it? Check your signal, then request another code."}
+        </p>
       </>}
       {error && <p className="field-error" role="alert">{error}</p>}
       <button className="hw-primary wide" disabled={busy}>
