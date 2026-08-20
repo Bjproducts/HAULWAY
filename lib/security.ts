@@ -1,5 +1,5 @@
 import { getSupabase, throwDatabaseError } from "@/db";
-import { jsonError, PublicError } from "@/lib/responses";
+import { ConfigError, jsonError, PublicError } from "@/lib/responses";
 
 const JSON_TYPES = ["application/json", "application/ld+json"];
 const DEFAULT_BODY_BYTES = 32 * 1024;
@@ -78,7 +78,7 @@ export async function readJsonBody<T>(request: Request, maxBytes = DEFAULT_BODY_
 
 export async function consumeRateLimit(request: Request, scope: string, limit: number, windowSeconds: number, subject = "") {
   const secret = process.env.RATE_LIMIT_SECRET?.trim() ?? "";
-  if (secret.length < 32) throw new Error("RATE_LIMIT_SECRET must contain at least 32 characters.");
+  if (secret.length < 32) throw new ConfigError("RATE_LIMIT_SECRET must contain at least 32 characters.");
   const key = await sha256(`${secret}:${scope}:${clientIp(request)}:${subject}`);
   const { data, error } = await getSupabase().rpc("consume_rate_limit", {
     p_key: key,
@@ -91,7 +91,7 @@ export async function consumeRateLimit(request: Request, scope: string, limit: n
 
 export async function requestFingerprint(request: Request) {
   const secret = process.env.SECURITY_FINGERPRINT_SECRET?.trim() || process.env.RATE_LIMIT_SECRET?.trim() || "";
-  if (secret.length < 32) throw new Error("A security fingerprint secret of at least 32 characters is required.");
+  if (secret.length < 32) throw new ConfigError("A security fingerprint secret of at least 32 characters is required.");
   const userAgent = request.headers.get("user-agent")?.slice(0, 512) || "unknown";
   const [ipHash, userAgentHash] = await Promise.all([
     sha256(`${secret}:ip:${clientIp(request)}`),

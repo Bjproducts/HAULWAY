@@ -1,3 +1,4 @@
+import { ConfigError } from "@/lib/responses";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let client: SupabaseClient | null = null;
@@ -7,7 +8,7 @@ export function getSupabase() {
     const url = process.env.SUPABASE_URL;
     const secretKey = process.env.SUPABASE_SECRET_KEY;
     if (!url || !secretKey) {
-      throw new Error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_SECRET_KEY.");
+      throw new ConfigError("Supabase is not configured. Add SUPABASE_URL and SUPABASE_SECRET_KEY.");
     }
     client = createClient(url, secretKey, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -23,7 +24,7 @@ export function getSupabase() {
 export function getSupabaseAuth() {
   const url = process.env.SUPABASE_URL;
   const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !publishableKey) throw new Error("Supabase Auth is not configured.");
+  if (!url || !publishableKey) throw new ConfigError("Supabase Auth is not configured.");
   return createClient(url, publishableKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
     global: { headers: { "X-Client-Info": "haulway-auth-server" } },
@@ -42,7 +43,7 @@ export function getSupabasePublicConfig() {
   const url = process.env.SUPABASE_URL;
   const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !publishableKey) {
-    throw new Error("Supabase uploads are not configured. Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.");
+    throw new ConfigError("Supabase uploads are not configured. Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.");
   }
   return { url, publishableKey, bucket: getStorageBucketName() };
 }
