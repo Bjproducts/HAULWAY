@@ -15,7 +15,17 @@ export function guardMutation(request: Request, options: { json?: boolean; maxBy
   if (origin) {
     let parsedOrigin: string;
     try { parsedOrigin = new URL(origin).origin.toLowerCase(); } catch { return jsonError("Cross-site request blocked.", 403); }
-    if (!allowedOrigins(request).has(parsedOrigin)) return jsonError("Cross-site request blocked.", 403);
+    const allowed = allowedOrigins(request);
+    if (!allowed.has(parsedOrigin)) {
+      /* A same-origin request being rejected means APP_ORIGIN is wrong, not that
+         an attack was blocked — and that misconfiguration takes down every
+         mutation at once. Say so in the logs rather than failing mutely. */
+      if (fetchSite === "same-origin") {
+        console.error("[security:origin] same-origin request rejected — APP_ORIGIN does not match the served host.",
+          { requestOrigin: parsedOrigin, allowed: [...allowed] });
+      }
+      return jsonError("Cross-site request blocked.", 403);
+    }
   } else if (!fetchSite && process.env.NODE_ENV === "production") {
     // Browser mutations send Origin or Fetch Metadata. Failing closed also
     // prevents non-browser clients from bypassing the same-origin contract.
@@ -114,9 +124,17 @@ export async function sha256(value: string) {
 
 function allowedOrigins(request: Request) {
   const origins = new Set<string>();
-  const configured = process.env.APP_ORIGIN?.trim();
-  if (configured) {
-    try { origins.add(new URL(configured).origin.toLowerCase()); } catch { return origins; }
+
+  /* APP_ORIGIN accepts a comma-separated list so an apex and its www host (or a
+     domain mid-migration) can both be served. Netlify's own URL is used when
+     nothing is configured: it is set by the platform rather than the caller, so
+     it is safe to trust, and it stops a missing variable from silently blocking
+     every mutation on a correctly deployed site. */
+  const configured = process.env.APP_ORIGIN?.trim() || process.env.URL?.trim();
+  for (const candidate of (configured ?? "").split(",")) {
+    const value = candidate.trim();
+    if (!value) continue;
+    try { origins.add(new URL(value).origin.toLowerCase()); } catch { /* skip malformed entry */ }
   }
 
   if (process.env.NODE_ENV !== "production") {
