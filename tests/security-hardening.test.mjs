@@ -113,3 +113,33 @@ test("only the owner can issue single-use named administrator invitations", asyn
   assert.match(schema, /consumed_at = clock_timestamp\(\)/);
   assert.match(management, /Create 24-hour invitation/);
 });
+
+test("public launch surfaces enforce bot validation, SMS consent, and legal discovery", async () => {
+  const [turnstile, register, driverRequest, customerPage, driverApplication, privacy, terms, smsTerms, robots, sitemap] = await Promise.all([
+    readFile(new URL("lib/turnstile.ts", root), "utf8"),
+    readFile(new URL("app/api/auth/register/route.ts", root), "utf8"),
+    readFile(new URL("app/api/driver/auth/request/route.ts", root), "utf8"),
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/driver/apply/page.tsx", root), "utf8"),
+    readFile(new URL("app/privacy/page.tsx", root), "utf8"),
+    readFile(new URL("app/terms/page.tsx", root), "utf8"),
+    readFile(new URL("app/sms-terms/page.tsx", root), "utf8"),
+    readFile(new URL("app/robots.ts", root), "utf8"),
+    readFile(new URL("app/sitemap.ts", root), "utf8"),
+  ]);
+  assert.match(turnstile, /turnstile\/v0\/siteverify/);
+  assert.match(turnstile, /result\.action !== expectedAction/);
+  assert.match(turnstile, /allowedHostnames/);
+  assert.match(turnstile, /process\.env\.NETLIFY/);
+  assert.match(turnstile, /throw new ConfigError\("Turnstile site and secret keys must both be configured/);
+  assert.match(register, /verifyTurnstile/);
+  assert.match(register, /smsConsented !== true/);
+  assert.match(driverRequest, /verifyTurnstile/);
+  assert.match(customerPage, /STOP to opt out; HELP for help/);
+  assert.match(driverApplication, /SMS Terms/);
+  assert.match(privacy, /Supabase, and Twilio/);
+  assert.match(terms, /independent contractors/);
+  assert.match(smsTerms, /promotional marketing texts/);
+  assert.match(robots, /sitemap\.xml/);
+  assert.match(sitemap, /https:\/\/haulway\.ca\/privacy/);
+});

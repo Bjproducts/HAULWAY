@@ -275,7 +275,7 @@ export function DriverManagement({ isOwner, onPendingChange }: { isOwner: boolea
       <div className="driver-admin-heading"><span className="micro-label">OWNER CONTROL</span><h2>Individual admin access</h2><p>Create a one-time invitation for your partner. Never send a password or authenticator key.</p></div>
       <form className="admin-invite-form" onSubmit={createAdminInvitation}>
         <label>Administrator name<input required value={adminName} onChange={(event) => setAdminName(event.target.value)} maxLength={80} placeholder="Partner’s full name" /></label>
-        <label>Administrator email<input required type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} maxLength={254} placeholder="partner@d-load.ca" /></label>
+        <label>Administrator email<input required type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} maxLength={254} placeholder="partner@haulway.ca" /></label>
         <button className="op-accept" disabled={Boolean(busy)}>{busy === "invite" ? "Creating…" : "Create 24-hour invitation"}<span>→</span></button>
       </form>
       {invitationUrl && <div className="admin-invite-secret"><span className="micro-label">SHOWN ONCE</span><strong>Send this link privately</strong><code>{invitationUrl}</code><button onClick={() => void navigator.clipboard.writeText(invitationUrl)}>Copy invitation link</button><small>The link expires in 24 hours and becomes invalid after use.</small></div>}

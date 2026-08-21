@@ -2,16 +2,21 @@ import { getSupabase, getSupabaseAuth, throwDatabaseError } from "@/db";
 import { normalizePhone } from "@/lib/auth";
 import { internalError, jsonError } from "@/lib/responses";
 import { consumeRateLimit, guardMutation, readJsonBody } from "@/lib/security";
+import { verifyTurnstile } from "@/lib/turnstile";
 
 export async function POST(request: Request) {
   const blocked = guardMutation(request);
   if (blocked) return blocked;
   try {
-    const body = await readJsonBody<{ phone?: string; purpose?: string; companyWebsite?: string }>(request);
+    const body = await readJsonBody<{ phone?: string; purpose?: string; companyWebsite?: string; smsConsented?: boolean; turnstileToken?: string }>(request);
     const phone = normalizePhone(body.phone ?? "");
     const purpose = body.purpose === "application" ? "application" : body.purpose === "login" ? "login" : null;
     if (!phone || !purpose) return jsonError("Enter a valid Canadian mobile number.");
     if (body.companyWebsite) return Response.json({ sent: true });
+    if (purpose === "application" && body.smsConsented !== true) {
+      return jsonError("Agree to the service-text terms before requesting a code.");
+    }
+    await verifyTurnstile(request, body.turnstileToken, purpose === "application" ? "driver_application_otp" : "driver_login_otp");
     const privacyContact = process.env.NEXT_PUBLIC_PRIVACY_CONTACT_EMAIL?.trim() ?? "";
     if (purpose === "application" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(privacyContact)) {
       return jsonError("Driver applications are unavailable until the privacy contact is configured.", 503);

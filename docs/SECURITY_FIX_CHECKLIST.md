@@ -16,13 +16,13 @@ Legend:
 - [x] Use passwordless SMS one-time codes for approved driver sign-in.
 - [x] Restrict driver login codes to approved, active, non-suspended drivers with current compliance.
 - [x] Use generic SMS-request responses so attackers cannot discover registered phone numbers.
-- [x] Replace shared administrator access with individually named accounts.
-- [x] Require a strong administrator passphrase.
-- [x] Require authenticator-app TOTP MFA for administrators.
+- [ ] Replace the temporary owners-only shared administrator passphrase with individually named accounts (deferred by owner for launch).
+- [ ] Rotate the shared `OPERATOR_PASSWORD` to a unique 20+ character value and keep it owners-only.
+- [ ] Require authenticator-app TOTP MFA for administrators (deferred by owner for launch).
 - [x] Encrypt administrator TOTP secrets at rest.
-- [x] Reject reuse of the same authenticator code.
+- [x] Preserve authenticator replay protection for the post-launch named-account migration.
 - [x] Bind driver sessions to the approved Supabase phone identity.
-- [x] Validate administrator email identity during authentication.
+- [ ] Validate each administrator's email identity after named accounts are enabled.
 
 ## Roles and authorization
 
@@ -168,16 +168,17 @@ Legend:
 ## Production security work still required
 
 - [ ] Enable and verify Supabase database backups.
-- [ ] Confirm `d-load.ca` TLS and canonical-domain configuration.
-- [ ] Add the documented security environment variables to Netlify.
+- [x] Confirm `haulway.ca` TLS and canonical-domain configuration.
+- [x] Add the documented security environment variables to Netlify.
 - [ ] Generate and securely back up the production MFA encryption key.
 - [ ] Generate a temporary owner setup token using a secure random source.
-- [ ] Top up Twilio and configure a production Messaging Service or sender.
-- [ ] Create a restricted Twilio API key.
-- [ ] Store the Twilio Auth Token for signed webhook verification.
-- [ ] Configure and test the production Twilio callback URL.
-- [ ] Configure Supabase Phone Auth with the production SMS provider.
-- [ ] Add production bot/challenge protection in front of public SMS requests.
+- [x] Top up Twilio and configure a production Messaging Service or sender.
+- [x] Create a restricted Twilio API key.
+- [x] Store the Twilio Auth Token for signed webhook verification.
+- [x] Configure and test the production Twilio callback URL.
+- [x] Configure Supabase Phone Auth with the production SMS provider.
+- [x] Implement action- and hostname-bound Cloudflare Turnstile validation for public SMS requests.
+- [ ] Add the production Turnstile keys to Netlify and test real challenges on both public hostnames.
 - [ ] Implement an administrator recovery process that cannot bypass MFA.
 - [ ] Apply all three security migrations in filename order during a maintenance window.
 - [ ] Deploy the matching application build immediately after the migrations.
@@ -186,7 +187,7 @@ Legend:
 - [ ] Invite the partner through the owner-only invitation flow.
 - [ ] Run production database-backed authorization tests for every role and suspension state.
 - [ ] Test invalid, expired, replayed, and rate-limited OTP scenarios in production.
-- [ ] Test valid and invalid Twilio webhook signatures.
+- [x] Test valid and invalid Twilio webhook signatures.
 - [ ] Verify audit records for every privileged production action.
 - [ ] Test database-backup restoration outside production.
 - [ ] Establish security monitoring and an incident-response contact process.

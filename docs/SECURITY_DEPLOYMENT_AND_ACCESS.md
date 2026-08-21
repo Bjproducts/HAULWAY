@@ -7,7 +7,7 @@ Last updated: August 19, 2026
 HAULWAY has three distinct account types:
 
 1. **Customers** verify ownership of their phone number with a Supabase SMS one-time code. They can access only their own requests, messages, and media.
-2. **Administrators** manage the business, approve drivers, dispatch work, and access all jobs. The owner and the owner's partner must each have a separate named administrator account with a separate passphrase and authenticator enrollment. There is no shared “general admin” credential.
+2. **Administrators** manage the business, approve drivers, dispatch work, and access all jobs. For the initial launch, the two owners have chosen one owners-only shared passphrase. This is an accepted temporary risk: it has no individual accountability or administrator MFA. Named accounts with separate passphrases and authenticator enrollment remain the required post-launch target.
 3. **Drivers** apply for access, remain unable to see jobs while pending, and receive a driver account only after an administrator approves the application. Approved drivers can access only jobs assigned to them.
 
 The first administrator is the **owner account**. A database invariant permits only one owner. The partner is a separate administrator and does not share the owner's credentials.
@@ -92,7 +92,7 @@ The public application must therefore include a clear collection notice, express
 ## Administrator rules
 
 - Never share administrator credentials or authenticator secrets.
-- The owner and partner use separate email addresses, passphrases, and MFA enrollments.
+- Launch exception: the owner and partner temporarily use one unique owners-only passphrase stored in a password manager. Move to separate named accounts and MFA after launch.
 - Only the owner may create, promote, demote, suspend, or remove administrator accounts. The partner administrator may manage operations and drivers but may not change administrator access.
 - All driver approvals, rejections, suspensions, job assignments, payment acknowledgements, and administrator changes must be audited.
 - Operator sessions have an eight-hour absolute lifetime and a 30-minute idle timeout.
@@ -138,7 +138,7 @@ HAULWAY will use Twilio for transactional request updates. Top up the Twilio acc
 3. Store `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY`, and `TWILIO_API_KEY_SECRET` only in Netlify environment variables.
 4. Store the account `TWILIO_AUTH_TOKEN` only in Netlify so HAULWAY can verify webhook signatures.
 5. Set `TWILIO_MESSAGING_SERVICE_SID` or, if necessary, `TWILIO_FROM_NUMBER`.
-6. Set `TWILIO_STATUS_CALLBACK_URL` to `https://d-load.ca/api/webhooks/twilio/status` in both Netlify and Twilio.
+6. Set `TWILIO_STATUS_CALLBACK_URL` to `https://haulway.ca/api/webhooks/twilio/status` in both Netlify and Twilio.
 7. Configure Supabase Phone Auth with the production SMS provider and review its OTP rate limits.
 8. Confirm opt-out handling, including STOP, and test delivered, failed, and undelivered callbacks.
 
@@ -148,7 +148,7 @@ Do not place any Twilio secret in a variable beginning with `NEXT_PUBLIC_`, in s
 
 Configure these values before deployment:
 
-- `APP_ORIGIN=https://d-load.ca`
+- `APP_ORIGIN=https://haulway.ca,https://www.haulway.ca`
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`

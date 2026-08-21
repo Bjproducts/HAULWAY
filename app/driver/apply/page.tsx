@@ -3,14 +3,18 @@
 import { FormEvent, useState } from "react";
 import { PRIVACY_CONTACT_EMAIL } from "@/lib/contracts";
 import { errorMessage, readJson } from "../../http";
+import { Turnstile } from "../../turnstile";
 
 type Step = "details" | "verify" | "done";
 
 export default function DriverApplicationPage() {
+  const botRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
   const [step, setStep] = useState<Step>("details");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [code, setCode] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileReset, setTurnstileReset] = useState(0);
   const [form, setForm] = useState({
     fullName: "",
     phone: "",
@@ -26,6 +30,7 @@ export default function DriverApplicationPage() {
     legalWorkAttested: false,
     privacyConsented: false,
     screeningConsented: false,
+    smsConsented: false,
     companyWebsite: "",
   });
 
@@ -40,12 +45,12 @@ export default function DriverApplicationPage() {
       await fetch("/api/driver/auth/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: form.phone, purpose: "application", companyWebsite: form.companyWebsite }),
+        body: JSON.stringify({ phone: form.phone, purpose: "application", companyWebsite: form.companyWebsite, smsConsented: form.smsConsented, turnstileToken }),
       }).then(readJson);
       setStep("verify");
     } catch (caught) {
       setError(errorMessage(caught));
-    } finally { setBusy(false); }
+    } finally { setTurnstileReset((value) => value + 1); setBusy(false); }
   }
 
   async function submitCode(event: FormEvent) {
@@ -120,12 +125,14 @@ export default function DriverApplicationPage() {
         <label className="driver-check"><input required type="checkbox" checked={form.legalWorkAttested} onChange={(event) => update("legalWorkAttested", event.target.checked)} /><span>I confirm I am legally able to work in Canada.</span></label>
         <label className="driver-check"><input required type="checkbox" checked={form.screeningConsented} onChange={(event) => update("screeningConsented", event.target.checked)} /><span>I consent to HAULWAY verifying my licence, driver abstract, registration, commercial insurance, WCB clearance, and business-licence status if my application advances.</span></label>
         <label className="driver-check"><input required type="checkbox" checked={form.privacyConsented} onChange={(event) => update("privacyConsented", event.target.checked)} /><span>I consent to this information being used to review and administer my driver application.</span></label>
-        <p className="driver-privacy-note">HAULWAY collects only information reasonably needed to review your application. Approved reviewers can access it. Service providers may process information outside Canada. Ask for access or correction at {PRIVACY_CONTACT_EMAIL ? <a href={`mailto:${PRIVACY_CONTACT_EMAIL}`}>{PRIVACY_CONTACT_EMAIL}</a> : "the HAULWAY privacy contact"}.</p>
+        <label className="driver-check"><input required type="checkbox" checked={form.smsConsented} onChange={(event) => update("smsConsented", event.target.checked)} /><span>I agree to receive verification codes and service-related texts about my application and, if approved, assigned requests. Frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help.</span></label>
+        <p className="driver-privacy-note">HAULWAY collects only information reasonably needed to review your application. Approved reviewers can access it. Service providers may process information outside Canada. Ask for access or correction at {PRIVACY_CONTACT_EMAIL ? <a href={`mailto:${PRIVACY_CONTACT_EMAIL}`}>{PRIVACY_CONTACT_EMAIL}</a> : "the HAULWAY privacy contact"}. Read our <a href="/privacy" target="_blank">Privacy Policy</a>, <a href="/terms" target="_blank">Terms</a>, and <a href="/sms-terms" target="_blank">SMS Terms</a>.</p>
       </section>
 
       <label className="driver-honeypot" aria-hidden="true">Company website<input tabIndex={-1} autoComplete="off" value={form.companyWebsite} onChange={(event) => update("companyWebsite", event.target.value)} /></label>
+      <Turnstile action="driver_application_otp" onToken={setTurnstileToken} resetKey={turnstileReset} />
       {error && <p className="field-error" role="alert">{error}</p>}
-      <button className="hw-primary wide" disabled={busy}>{busy ? "Sending code…" : "Verify mobile & submit"}<span aria-hidden="true">→</span></button>
+      <button className="hw-primary wide" disabled={busy || (botRequired && !turnstileToken)}>{busy ? "Sending code…" : "Verify mobile & submit"}<span aria-hidden="true">→</span></button>
       <small className="driver-apply-foot">No application fee · Documents requested only after review</small>
     </form>}
 
