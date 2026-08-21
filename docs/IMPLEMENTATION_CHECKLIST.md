@@ -1,6 +1,17 @@
 # HAULWAY implementation checklist
 
-Last updated: August 19, 2026
+Last updated: August 21, 2026
+
+## Current owner-operated launch decision
+
+- [x] Remove the public driver application from the product.
+- [x] Remove driver SMS sign-in and invalidate legacy driver sessions.
+- [x] Remove driver assignment and driver-management controls from the owner portal.
+- [x] Restrict every operator-side job action to administrators.
+- [x] Keep accept, quote, ETA, arrival swipe, chat, completion, and payment controls in the owners-only portal.
+- [x] Keep legacy driver tables dormant instead of destructively changing production data.
+
+The older driver workflow sections below are retained as implementation history and future planning material; those features are not enabled in the launch product.
 
 This checklist separates work completed and verified in the prepared code from production actions that still require credentials, provider configuration, a coordinated database migration, or owner approval.
 

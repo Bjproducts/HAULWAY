@@ -1,20 +1,21 @@
 # HAULWAY security, access, and deployment guide
 
-Last updated: August 19, 2026
+Last updated: August 21, 2026
+
+> **Current launch decision — owner operated.** Public driver applications, driver SMS sign-in, driver assignment, and driver-management APIs are disabled. Only an active administrator can enter the owner portal or perform the operator side of a request. Existing driver-related database tables and the research below are retained as dormant planning material; they do not describe a currently available product feature.
 
 ## Agreed operating model
 
-HAULWAY has three distinct account types:
+HAULWAY currently has two active account types:
 
 1. **Customers** verify ownership of their phone number with a Supabase SMS one-time code. They can access only their own requests, messages, and media.
-2. **Administrators** manage the business, approve drivers, dispatch work, and access all jobs. For the initial launch, the two owners have chosen one owners-only shared passphrase. This is an accepted temporary risk: it has no individual accountability or administrator MFA. Named accounts with separate passphrases and authenticator enrollment remain the required post-launch target.
-3. **Drivers** apply for access, remain unable to see jobs while pending, and receive a driver account only after an administrator approves the application. Approved drivers can access only jobs assigned to them.
+2. **Administrators/owners** accept and perform every request and can access all jobs. For the initial launch, the two owners have chosen one owners-only shared passphrase. This is an accepted temporary risk: it has no individual accountability or administrator MFA. Named accounts with separate passphrases and authenticator enrollment remain the required post-launch target.
 
 The first administrator is the **owner account**. A database invariant permits only one owner. The partner is a separate administrator and does not share the owner's credentials.
 
-The current driver operating assumption is **independent contractor using their own vehicle**. The database records engagement type and vehicle source separately so HAULWAY can move to employees, company vehicles, or a mixed fleet later without redesigning account ownership or job assignment.
+No driver accounts are active in the launch application. Any future employee, contractor, company-vehicle, or mixed-fleet model requires a new owner decision, legal review, security review, and explicit re-enablement.
 
-## Driver onboarding flow
+## Dormant future driver-onboarding design (not enabled)
 
 The recommended flow avoids accepting a reusable password from someone who has not yet been approved:
 

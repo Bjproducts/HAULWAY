@@ -69,8 +69,7 @@ export async function getJobRow(id: string) {
 
 export function canAccessJob(session: AuthSession, job: JobRow) {
   if (session.role === "customer") return job.customer_id === session.subjectId;
-  if (session.operator?.accessRole === "admin") return true;
-  return job.assigned_operator_id === session.subjectId;
+  return session.operator?.accessRole === "admin";
 }
 
 export async function getJobDetails(id: string) {
@@ -145,7 +144,7 @@ export function mapJob(job: JobRow) {
     status: job.status,
     eta: etaDueAt ? `${Math.max(0, Math.ceil((Date.parse(etaDueAt) - Date.now()) / 60_000))} min` : job.eta,
     etaDueAt,
-    /* Arrival is independent from quoting: a driver may reach the pickup while
+    /* Arrival is independent from quoting: Haulway may reach the pickup while
        the customer is still reviewing the quote. Keep the status fallback for
        records created before the dedicated timestamp migration. */
     driverArrived: Boolean(job.driver_arrived_at) || job.status === "in_progress",

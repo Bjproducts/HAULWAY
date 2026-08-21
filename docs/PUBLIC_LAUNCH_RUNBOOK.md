@@ -19,9 +19,9 @@ This is the release gate for promoting `https://haulway.ca`. Do not advertise th
 - [ ] Confirm `/privacy`, `/terms`, `/sms-terms`, `/robots.txt`, `/sitemap.xml`, and `/.well-known/security.txt` return HTTP 200.
 - [ ] Confirm `https://www.haulway.ca` redirects to `https://haulway.ca` with HTTPS.
 - [ ] On a real phone, create a customer account, receive exactly one OTP, create a request, upload media, accept a quote, and receive transactional SMS updates.
-- [ ] In a separate driver session, request a code, accept the job, set/change ETA, swipe arrived, chat, complete the job, and confirm the customer tracker updates.
+- [ ] In the owners-only portal, accept the job, set/change ETA, swipe arrived, chat, complete the job, and confirm the customer tracker updates.
 - [ ] Confirm the customer cannot create a second active request.
-- [ ] Confirm a wrong OTP, repeated resend, cross-site mutation, unsigned Twilio callback, and non-admin driver approval all fail safely.
+- [ ] Confirm a wrong OTP, repeated resend, cross-site mutation, unsigned Twilio callback, driver login, driver application, and driver assignment all fail safely.
 - [ ] Confirm STOP and HELP behavior on the production Twilio sender.
 - [ ] Confirm no secret, raw OTP, full media URL, or customer address appears in Netlify function logs.
 
@@ -29,9 +29,9 @@ This is the release gate for promoting `https://haulway.ca`. Do not advertise th
 
 - [ ] Keep one owner signed in to the operator portal and one separate customer test device available.
 - [ ] Watch Netlify function errors, Supabase database/auth health, Twilio delivery failures, and the SMS balance during the campaign.
-- [ ] Pause promotion if health checks fail, OTP delivery degrades, request state diverges between driver/customer, or payment instructions are unclear.
+- [ ] Pause promotion if health checks fail, OTP delivery degrades, request state diverges between owner/customer, or payment instructions are unclear.
 - [ ] Export a pre-launch Supabase backup and record the deployed Git commit.
-- [ ] Prepare a short customer-support response for failed OTPs, delayed drivers, cancellation, payment questions, and privacy requests.
+- [ ] Prepare a short customer-support response for failed OTPs, delayed arrivals, cancellation, payment questions, and privacy requests.
 
 ## Known accepted risk
 

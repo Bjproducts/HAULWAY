@@ -1,4 +1,3 @@
-import { getSupabase, throwDatabaseError } from "@/db";
 import { getApiSession } from "@/lib/auth";
 import { recordAuditEvent } from "@/lib/audit";
 import { INTERAC_EMAIL } from "@/lib/contracts";
@@ -34,7 +33,7 @@ export async function PATCH(request: Request, context: Context) {
     const job = await getJobRow(id);
     if (!job) return jsonError("Job not found.", 404);
     if (!canAccessJob(session, job)) return jsonError("You cannot access this job.", 403);
-    const body = await readJsonBody<{ action?: string; amount?: number; method?: string; etaMinutes?: number; rating?: number; skip?: boolean; operatorId?: string }>(request);
+    const body = await readJsonBody<{ action?: string; amount?: number; method?: string; etaMinutes?: number; rating?: number; skip?: boolean }>(request);
     const allowed = await consumeRateLimit(request, "job-action", 60, 5 * 60, session.subjectId);
     if (!allowed) return jsonError("Too many updates. Wait a few minutes and try again.", 429);
     if (job.status === "cancelled") return jsonError("This request was cancelled.", 409);
@@ -50,42 +49,25 @@ export async function PATCH(request: Request, context: Context) {
       await commit({ status: "approved" });
       smsEvent = {
         id: await addSystemMessage(id, "Haulway accepted your request. Your quote will arrive in this chat."),
-        body: "HAULWAY update: We accepted your request. We’ll assign your driver and send live updates here.",
+        body: "HAULWAY update: We accepted your request. We’ll send your quote and live arrival updates here.",
       };
     } else if (body.action === "assign_driver") {
-      if (session.operator?.accessRole !== "admin") return jsonError("Administrator access required.", 403);
-      if (!["approved", "quoted", "accepted", "in_progress"].includes(job.status)) return jsonError("Accept the request before assigning a driver.");
-      const operatorId = typeof body.operatorId === "string" ? body.operatorId : "";
-      const { data: driver, error: driverError } = await getSupabase().from("operators")
-        .select("id, display_name")
-        .eq("id", operatorId)
-        .eq("role", "driver")
-        .eq("active", true)
-        .is("suspended_at", null)
-        .gte("compliance_expires_on", new Date().toISOString().slice(0, 10))
-        .maybeSingle();
-      throwDatabaseError(driverError);
-      if (!driver) return jsonError("Choose an active driver with current compliance records.", 409);
-      await commit({ assigned_operator_id: driver.id });
-      smsEvent = {
-        id: await addSystemMessage(id, `${driver.display_name} was assigned to your haul.`),
-        body: `HAULWAY update: ${driver.display_name} was assigned to your haul. Open the app for live updates.`,
-      };
+      return jsonError("Driver assignment has been removed. Owners handle requests directly.", 410);
     } else if (body.action === "set_eta") {
-      if (session.role !== "operator") return jsonError("Operator access required.", 403);
+      if (session.operator?.accessRole !== "admin") return jsonError("Administrator access required.", 403);
       if (!ETA_STATUSES.has(job.status)) return jsonError("An ETA can only be set for an active request.");
-      if (job.driver_arrived_at || job.status === "in_progress") return jsonError("The driver has already marked this haul as arrived.", 409);
+      if (job.driver_arrived_at || job.status === "in_progress") return jsonError("Arrival was already confirmed for this haul.", 409);
       const etaMinutes = Number(body.etaMinutes);
       if (!Number.isInteger(etaMinutes) || etaMinutes < 1 || etaMinutes > 360) return jsonError("Enter an ETA from 1 to 360 minutes.");
       const eta = `${etaMinutes} min`;
       const etaDueAt = new Date(Date.now() + etaMinutes * 60_000).toISOString();
       await commit({ eta: etaDueAt });
       smsEvent = {
-        id: await addSystemMessage(id, `Driver ETA: ${eta}.`),
-        body: `HAULWAY update: Your driver ETA is ${eta}.`,
+        id: await addSystemMessage(id, `Haulway ETA: ${eta}.`),
+        body: `HAULWAY update: We expect to arrive in ${eta}.`,
       };
     } else if (body.action === "mark_arrived") {
-      if (session.role !== "operator") return jsonError("Operator access required.", 403);
+      if (session.operator?.accessRole !== "admin") return jsonError("Administrator access required.", 403);
       if (job.driver_arrived_at || job.status === "in_progress") return jsonError("Arrival was already confirmed.", 409);
       if (!ARRIVAL_STATUSES.has(job.status)) return jsonError("Arrival can only be marked for an active request.");
       await commit({
@@ -94,8 +76,8 @@ export async function PATCH(request: Request, context: Context) {
         eta: null,
       });
       smsEvent = {
-        id: await addSystemMessage(id, "Your driver has arrived at the pickup address."),
-        body: "HAULWAY update: Your driver has arrived at the pickup address.",
+        id: await addSystemMessage(id, "Haulway has arrived at the pickup address."),
+        body: "HAULWAY update: We have arrived at the pickup address.",
       };
     } else if (body.action === "cancel_request") {
       if (session.role !== "customer") return jsonError("Customer access required.", 403);
@@ -127,7 +109,7 @@ export async function PATCH(request: Request, context: Context) {
     } else if (body.action === "decline_quote") {
       if (session.role !== "customer") return jsonError("Customer access required.", 403);
       if (job.status !== "quoted" || !job.quote_cents) return jsonError("There is no quote to decline.");
-      /* Back to approved, not requested — the driver already took the job. */
+      /* Back to approved, not requested — Haulway already accepted the job. */
       await commit({ quote_cents: null, status: "approved" });
       smsEvent = {
         id: await addSystemMessage(id, "Quote declined. You can discuss a different price here."),
@@ -145,7 +127,7 @@ export async function PATCH(request: Request, context: Context) {
       await commit({ payment_method: body.method });
       const paymentMessage = body.method === "interac"
         ? `Payment method: Interac e-Transfer. Send it to ${INTERAC_EMAIL}.`
-        : "Payment method: cash, paid directly to the driver.";
+        : "Payment method: cash, paid directly to Haulway.";
       smsEvent = {
         id: await addSystemMessage(id, paymentMessage),
         body: `HAULWAY payment update: ${paymentMessage}`,
@@ -161,7 +143,8 @@ export async function PATCH(request: Request, context: Context) {
         body: "HAULWAY confirmation: Your payment was received. Thank you.",
       };
     } else if (body.action === "confirm_complete") {
-      if (job.status !== "in_progress") return jsonError("Mark the driver as arrived before confirming the job complete.");
+      if (job.status !== "in_progress") return jsonError("Confirm arrival before marking the job complete.");
+      if (session.role === "operator" && session.operator?.accessRole !== "admin") return jsonError("Administrator access required.", 403);
       const confirmationField = session.role === "operator" ? "operator_confirmed" : "customer_confirmed";
       if (job[confirmationField]) return jsonError("You already confirmed this job.", 409);
       await commit({ [confirmationField]: true });

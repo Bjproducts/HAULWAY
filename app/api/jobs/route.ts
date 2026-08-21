@@ -22,10 +22,10 @@ export async function GET(request: Request) {
     .select("*, customers!inner(name, phone)")
     .eq("upload_complete", true)
     .order("created_at", { ascending: false });
-  /* A cancelled request disappears for the customer. Admins can dispatch every
-     job; a driver account receives only explicitly assigned jobs. */
+  /* A cancelled request disappears for the customer. The owner/admin portal
+     receives every request and is the only operator surface at launch. */
   if (!operator) query = query.eq("customer_id", session.subjectId).neq("status", "cancelled");
-  else if (session.operator?.accessRole === "driver") query = query.eq("assigned_operator_id", session.subjectId);
+  else if (session.operator?.accessRole !== "admin") return jsonError("Administrator access required.", 403);
   const { data, error } = await query;
   throwDatabaseError(error);
   const rows = (data ?? []).map((job) => flattenJob(job as Parameters<typeof flattenJob>[0]));
