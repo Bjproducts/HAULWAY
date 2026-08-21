@@ -8,6 +8,7 @@ import { INTERAC_EMAIL, money, shortDate } from "@/lib/contracts";
 import { Composer, MessageList, useStickyScroll } from "../chat-ui";
 import { errorMessage, readJson } from "../http";
 import { SwipeAction } from "../swipe-action";
+import { Turnstile } from "../turnstile";
 import { DriverManagement } from "./driver-management";
 import type { ApprovedDriver } from "./driver-management";
 
@@ -276,10 +277,13 @@ function LoginKindTabs({ value, onChange }: { value: "admin" | "driver"; onChang
 }
 
 function DriverSmsLogin({ error, onError, onSuccess }: { error: string; onError: (error: string) => void; onSuccess: () => void }) {
+  const botRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileReset, setTurnstileReset] = useState(0);
 
   async function submit(event: FormEvent) {
     event.preventDefault(); onError(""); setBusy(true);
@@ -288,7 +292,7 @@ function DriverSmsLogin({ error, onError, onSuccess }: { error: string; onError:
         await fetch("/api/driver/auth/request", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone, purpose: "login" }),
+          body: JSON.stringify({ phone, purpose: "login", turnstileToken }),
         }).then(readJson);
         setSent(true);
       } else {
@@ -299,7 +303,7 @@ function DriverSmsLogin({ error, onError, onSuccess }: { error: string; onError:
         }).then(readJson);
         onSuccess();
       }
-    } catch (caught) { onError(errorMessage(caught)); } finally { setBusy(false); }
+    } catch (caught) { onError(errorMessage(caught)); } finally { if (!sent) setTurnstileReset((value) => value + 1); setBusy(false); }
   }
 
   return <form className="op-driver-login" onSubmit={submit}>
@@ -307,10 +311,10 @@ function DriverSmsLogin({ error, onError, onSuccess }: { error: string; onError:
     <span className="micro-label">APPROVED DRIVERS</span>
     <h1>{sent ? "Check your messages." : "Your route starts here."}</h1>
     <p>{sent ? <>Enter the six-digit code sent to <b>{phone}</b>.</> : "Use the mobile number verified on your approved driver application."}</p>
-    {!sent ? <label>Verified mobile number<input required type="tel" autoComplete="tel" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(780) 555-0123" /></label>
+    {!sent ? <><label>Verified mobile number<input required type="tel" autoComplete="tel" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(780) 555-0123" /></label><Turnstile action="driver_login_otp" onToken={setTurnstileToken} resetKey={turnstileReset} /></>
       : <label>SMS code<input required className="op-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" /></label>}
     {error && <p className="field-error" role="alert">{error}</p>}
-    <button className="hw-primary wide" disabled={busy || (sent && code.length !== 6)}>{busy ? "Please wait…" : sent ? "Secure sign in" : "Send secure code"}<span>→</span></button>
+    <button className="hw-primary wide" disabled={busy || (sent && code.length !== 6) || (!sent && botRequired && !turnstileToken)}>{busy ? "Please wait…" : sent ? "Secure sign in" : "Send secure code"}<span>→</span></button>
     {sent && <button className="driver-text-button" type="button" onClick={() => { setSent(false); setCode(""); onError(""); }}>Use a different number</button>}
     <span className="op-gate-trust">SMS verified · Approved drivers only · 30-minute idle lock</span>
     <a className="op-apply-link" href="/driver/apply">Not approved yet? Apply to drive <span>→</span></a>

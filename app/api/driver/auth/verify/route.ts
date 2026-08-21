@@ -113,7 +113,7 @@ async function submitDriverApplication(request: Request, body: Record<string, un
     action: existing ? "driver.application.update" : "driver.application.submit",
     targetType: "driver_application",
     targetId: applicationId,
-    metadata: { phoneVerified: true, engagementType: "contractor", vehicleSource: "own" },
+    metadata: { phoneVerified: true, smsConsentVersion: "2026-08-21", engagementType: "contractor", vehicleSource: "own" },
   });
   return Response.json({ application: { id: applicationId, status: "pending" } }, { status: existing ? 200 : 201 });
 }

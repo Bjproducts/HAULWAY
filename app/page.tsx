@@ -9,6 +9,7 @@ import { BUILDING_TYPES, INTERAC_EMAIL, MAX_ACTIVE_REQUESTS, NEEDS_BUILDING_DETA
 import { Composer, MessageList, useStickyScroll } from "./chat-ui";
 import { errorMessage, readJson } from "./http";
 import { SwipeAction } from "./swipe-action";
+import { Turnstile } from "./turnstile";
 
 type Screen = "boot" | "auth" | "app" | "request";
 type Tab = "home" | "requests";
@@ -812,12 +813,16 @@ function Splash() {
 }
 
 function Registration({ onRegistered }: { onRegistered: (customer: Customer) => void }) {
+  const botRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [stage, setStage] = useState<"details" | "code">("details");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [smsConsented, setSmsConsented] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileReset, setTurnstileReset] = useState(0);
   /* Only three codes an hour reach a number. Without a visible cooldown people
      tap "Send again" repeatedly, spend the whole allowance in seconds and lock
      themselves out of the number they are trying to verify. */
@@ -830,12 +835,14 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
   }, [cooldown]);
 
   async function sendCode() {
+    if (!smsConsented) { setError("Agree to the service-text terms before we send a code."); return; }
     setBusy(true); setError("");
     try {
-      await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone }) }).then(readJson);
+      await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone, smsConsented, turnstileToken }) }).then(readJson);
       setStage("code");
       setCooldown(RESEND_SECONDS);
-    } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+      setTurnstileReset((value) => value + 1);
+    } catch (caught) { setError(errorMessage(caught)); setTurnstileReset((value) => value + 1); } finally { setBusy(false); }
   }
 
   async function submit(event: FormEvent) {
@@ -843,7 +850,7 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
     if (stage === "details") return void sendCode();
     setBusy(true); setError("");
     try {
-      const data = await fetch("/api/auth/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone, code }) }).then(readJson) as { customer: Customer };
+      const data = await fetch("/api/auth/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone, code, smsConsented }) }).then(readJson) as { customer: Customer };
       onRegistered(data.customer);
     } catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
@@ -862,11 +869,13 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
       {stage === "details" ? <>
         <label>Your name<input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your full name" /></label>
         <label>Mobile number<span className="phone-field"><span>+1</span><input autoComplete="tel" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(780) 555-0148" /></span></label>
+        <label className="auth-consent"><input required type="checkbox" checked={smsConsented} onChange={(event) => setSmsConsented(event.target.checked)} /><span>I agree to security codes and service texts about my requests. Frequency varies; message/data rates may apply. STOP to opt out; HELP for help. <a href="/sms-terms" target="_blank">SMS Terms</a> · <a href="/privacy" target="_blank">Privacy</a>.</span></label>
+        <Turnstile action="customer_otp" onToken={setTurnstileToken} resetKey={turnstileReset} />
       </> : <>
         <label>Verification code<input className="auth-code" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" /></label>
         <div className="auth-code-actions">
           <button type="button" onClick={() => { setStage("details"); setCode(""); setError(""); setCooldown(0); }}>Change number</button>
-          <button type="button" className={cooldown > 0 ? "waiting" : ""} disabled={busy || cooldown > 0} onClick={() => void sendCode()}>
+          <button type="button" className={cooldown > 0 ? "waiting" : ""} disabled={busy || cooldown > 0 || (botRequired && !turnstileToken)} onClick={() => void sendCode()}>
             {cooldown > 0 ? `Send again in ${countdown(cooldown)}` : "Send again"}
           </button>
         </div>
@@ -875,15 +884,16 @@ function Registration({ onRegistered }: { onRegistered: (customer: Customer) => 
             ? `Didn't get it? You can request another code in ${countdown(cooldown)}.`
             : "Didn't get it? Check your signal, then request another code."}
         </p>
+        <Turnstile action="customer_otp" onToken={setTurnstileToken} resetKey={turnstileReset} />
       </>}
       {error && <p className="field-error" role="alert">{error}</p>}
-      <button className="hw-primary wide" disabled={busy}>
+      <button className="hw-primary wide" disabled={busy || (stage === "details" && botRequired && !turnstileToken)}>
         {busy
           ? stage === "details" ? "Sending…" : "Verifying…"
           : stage === "details" ? "Text me a code →" : "Verify & continue →"}
       </button>
       <small>{stage === "details"
-        ? "Standard message rates may apply."
+        ? <>By continuing, you also agree to the <a href="/terms" target="_blank">Terms of Service</a>.</>
         : "Codes expire quickly and can only be used once."}</small>
     </form>
   </main>;

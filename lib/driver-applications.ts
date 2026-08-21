@@ -47,6 +47,7 @@ export function validateDriverApplication(input: Record<string, unknown>, verifi
   if (input.privacyConsented !== true || input.screeningConsented !== true) {
     throw new PublicError("Consent is required to submit and review this application.");
   }
+  if (input.smsConsented !== true) throw new PublicError("Agree to the service-text terms before submitting.");
 
   const now = new Date().toISOString();
   return {

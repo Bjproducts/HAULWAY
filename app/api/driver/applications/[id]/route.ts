@@ -69,7 +69,7 @@ export async function PATCH(request: Request, context: Context) {
 
     if (result.phone) {
       const message = result.outcome === "approved"
-        ? "HAULWAY: Your driver application was approved. Sign in at d-load.ca/driver using this verified mobile number."
+        ? "HAULWAY: Your driver application was approved. Sign in at haulway.ca/driver using this verified mobile number."
         : "HAULWAY: Your driver application was reviewed and was not approved. Contact HAULWAY if you need more information.";
       await notifyDriverApplicationSms(id, result.phone, crypto.randomUUID(), message);
     }

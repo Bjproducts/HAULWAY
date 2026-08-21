@@ -1,5 +1,6 @@
 import { getSupabase, getSupabaseAuth, throwDatabaseError } from "@/db";
 import { createSession, normalizePhone } from "@/lib/auth";
+import { recordAuditEvent } from "@/lib/audit";
 import { internalError, jsonError } from "@/lib/responses";
 import { consumeRateLimit, guardMutation, readJsonBody } from "@/lib/security";
 
@@ -7,13 +8,14 @@ export async function POST(request: Request) {
   const blocked = guardMutation(request);
   if (blocked) return blocked;
   try {
-    const body = await readJsonBody<{ name?: string; phone?: string; code?: string }>(request);
+    const body = await readJsonBody<{ name?: string; phone?: string; code?: string; smsConsented?: boolean }>(request);
     const name = body.name?.trim().replace(/\s+/g, " ") ?? "";
     const phone = normalizePhone(body.phone ?? "");
     const code = body.code?.replace(/\D/g, "") ?? "";
     if (name.length < 2 || name.length > 60) return jsonError("Enter your full name.");
     if (!phone) return jsonError("Enter a valid Canadian phone number.");
     if (!/^\d{6}$/.test(code)) return jsonError("Enter the 6-digit verification code.");
+    if (body.smsConsented !== true) return jsonError("Service-text consent is required to use SMS sign-in.");
 
     const allowed = await consumeRateLimit(request, "customer-verify", 8, 15 * 60, phone);
     if (!allowed) return jsonError("Too many verification attempts. Request a new code later.", 429);
@@ -45,6 +47,15 @@ export async function POST(request: Request) {
     }
 
     const cookie = await createSession("customer", id, request);
+    await recordAuditEvent({
+      request,
+      actorRole: "customer",
+      actorId: id,
+      action: "customer.sms_consent",
+      targetType: "customer",
+      targetId: id,
+      metadata: { version: "2026-08-21", purpose: "authentication_and_request_updates" },
+    });
     return Response.json({ customer: { id, name, phone } }, { headers: { "Set-Cookie": cookie } });
   } catch (error) {
     return internalError(error, "auth:verify-otp");

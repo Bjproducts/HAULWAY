@@ -75,12 +75,12 @@ This checklist separates work completed and verified in the prepared code from p
 
 ## Owner and administrator access
 
-- [x] Replace shared administrator access with named accounts.
+- [ ] Replace the temporary owners-only shared administrator passphrase with named accounts (deferred by owner for launch).
 - [x] Create one database-enforced owner account.
-- [x] Require a strong passphrase and authenticator-app TOTP for administrators.
+- [ ] Require named administrator passphrases and authenticator-app TOTP (deferred by owner for launch).
 - [x] Encrypt TOTP secrets at rest.
-- [x] Prevent reuse of the same authenticator code.
-- [x] Give the partner a separate administrator account instead of shared credentials.
+- [x] Keep replay-protected TOTP support ready for the post-launch named-account migration.
+- [ ] Give the partner a separate administrator account instead of shared credentials (post-launch owner decision).
 - [x] Restrict administrator creation, suspension, reactivation, and access management to the owner.
 - [x] Let regular administrators manage operations and driver reviews without managing administrator access.
 - [x] Add 24-hour, single-use administrator invitations.
@@ -171,12 +171,13 @@ This checklist separates work completed and verified in the prepared code from p
 - [ ] Confirm final contractor agreements, insurance limits, WCB handling, business licensing, prohibited materials, and retention periods with qualified Alberta advisers and the relevant providers.
 - [ ] Establish a monitored privacy-contact email and written privacy/retention procedures.
 - [ ] Enable and verify Supabase database backups before migration.
-- [ ] Configure the production `d-load.ca` domain and TLS on the selected Netlify site.
-- [ ] Add every required Netlify environment variable from the deployment guide.
-- [ ] Top up Twilio and configure a production sender or Messaging Service.
-- [ ] Create a restricted Twilio API key and configure the signed status-callback URL.
-- [ ] Configure Supabase Phone Auth with the production SMS provider and review OTP limits.
-- [ ] Add production bot/challenge protection in front of public SMS requests.
+- [x] Configure the production `haulway.ca` domain and TLS on the selected Netlify site.
+- [x] Add every required Netlify environment variable from the deployment guide.
+- [x] Top up Twilio and configure a production sender or Messaging Service.
+- [x] Create a restricted Twilio API key and configure the signed status-callback URL.
+- [x] Configure Supabase Phone Auth with the production SMS provider and review OTP limits.
+- [x] Implement server-validated Cloudflare Turnstile protection in front of public SMS requests.
+- [ ] Configure the production Turnstile site and secret keys in Netlify and verify the two live hostnames.
 - [ ] Implement a reviewed administrator account-recovery process that cannot bypass MFA.
 - [ ] Put the current site into a short maintenance window.
 - [ ] Apply all Supabase migrations in filename order.
