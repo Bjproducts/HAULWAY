@@ -134,6 +134,9 @@ async function sendTwilio(to: string, body: string) {
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: params,
+    /* A provider delay must never hold a booking open until Netlify terminates
+       the whole request. The durable outbox retries timed-out sends. */
+    signal: AbortSignal.timeout(8_000),
   });
   const result = await response.json().catch(() => ({})) as { sid?: string; message?: string };
   if (!response.ok || !result.sid) throw new Error(result.message || `Twilio returned ${response.status}.`);

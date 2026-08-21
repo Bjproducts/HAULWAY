@@ -80,12 +80,16 @@ export async function PATCH(request: Request, context: Context) {
         body: "HAULWAY update: We have arrived at the pickup address.",
       };
     } else if (body.action === "cancel_request") {
-      if (session.role !== "customer") return jsonError("Customer access required.", 403);
-      if (!CANCELLABLE.has(job.status)) return jsonError("This haul is already booked. Message Haulway in chat to change it.");
-      await commit({ status: "cancelled" });
+      const administrator = session.operator?.accessRole === "admin";
+      if (session.role !== "customer" && !administrator) return jsonError("Customer or administrator access required.", 403);
+      if (!administrator && !CANCELLABLE.has(job.status)) return jsonError("This haul is already booked. Message Haulway in chat to change it.");
+      if (job.status === "completed") return jsonError("A completed haul cannot be cancelled.", 409);
+      await commit({ status: "cancelled", eta: null });
       smsEvent = {
-        id: await addSystemMessage(id, "The customer cancelled this request."),
-        body: "HAULWAY confirmation: Your request was cancelled.",
+        id: await addSystemMessage(id, administrator ? "Haulway cancelled this request." : "The customer cancelled this request."),
+        body: administrator
+          ? "HAULWAY update: We closed this request. You can book another haul now."
+          : "HAULWAY confirmation: Your request was cancelled.",
       };
     } else if (body.action === "send_quote") {
       if (session.operator?.accessRole !== "admin") return jsonError("Administrator access required.", 403);

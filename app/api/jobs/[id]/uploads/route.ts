@@ -55,7 +55,7 @@ export async function POST(request: Request, context: Context) {
     /* The database serializes finalization for this customer, closing the tiny
        race between two tabs without counting abandoned upload drafts. */
     if (finalizeError?.code === "23505") {
-      return jsonError("You already have an active haul. Finish or cancel it before booking another.", 409);
+      return jsonError("You already have an active haul. Finish it or ask Haulway to close it before booking another.", 409);
     }
     throwDatabaseError(finalizeError);
     if (!finalized) return jsonError("This upload changed while it was being verified. Start the booking again.", 409);

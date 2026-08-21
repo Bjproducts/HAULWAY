@@ -261,6 +261,7 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [pending, setPending] = useState<string[]>([]);
   const { ref: chatScrollRef, pinned: chatPinned, jump: jumpToLatest } = useStickyScroll((job?.messages.length ?? 0) + pending.length);
   const quoteTouched = useRef(false);
@@ -308,6 +309,13 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
       setError(errorMessage(caught));
       setMessage((current) => current || body);
     } finally { setPending((queue) => queue.slice(1)); }
+  }
+
+  async function cancelHaul() {
+    const cancelled = await action("cancel_request");
+    if (!cancelled) return;
+    setConfirmCancel(false);
+    onBack();
   }
 
   if (!job) return <div className="op-shell">
@@ -420,8 +428,18 @@ function OperatorJob({ jobId, onBack, onChanged }: { jobId: string; onBack: () =
 
       {job.status === "in_progress" && job.driverArrived && <button className="op-accept" disabled={busy || job.operatorConfirmed} onClick={() => void action("confirm_complete")}>{job.operatorConfirmed ? "Waiting on the customer ✓" : "Confirm job complete"}</button>}
 
-      {job.status === "cancelled" && <div className="op-cancelled">Cancelled by the customer</div>}
+      {job.status !== "completed" && job.status !== "cancelled" && <button className="op-cancel-haul" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel this haul</button>}
+
+      {job.status === "cancelled" && <div className="op-cancelled">Haul cancelled</div>}
     </div>
+
+    {confirmCancel && <div className="cancel-sheet" role="dialog" aria-modal="true" aria-labelledby="owner-cancel-title">
+      <div className="cancel-sheet-card">
+        <h3 id="owner-cancel-title">Cancel this haul?</h3>
+        <p>This ends live tracking, notifies the customer, and lets them book another haul. The request record will be kept.</p>
+        <div><button disabled={busy} onClick={() => setConfirmCancel(false)}>Keep active</button><button className="danger" disabled={busy} onClick={() => void cancelHaul()}>{busy ? "Cancelling…" : "Cancel haul"}</button></div>
+      </div>
+    </div>}
   </div>;
 }
 

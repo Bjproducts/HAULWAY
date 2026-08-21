@@ -37,6 +37,10 @@ test("operator workflow supports quotes, chat, payment tracking, and two confirm
   assert.match(actions, /payment_method/);
   assert.match(actions, /customer_confirmed/);
   assert.match(actions, /operator_confirmed/);
+  assert.match(actions, /const administrator = session\.operator\?\.accessRole === "admin"/);
+  assert.match(driver, /Cancel this haul/);
+  assert.match(driver, /action\("cancel_request"\)/);
+  assert.match(driver, /lets them book another haul/);
   assert.match(messages, /from\("messages"\)/);
   assert.match(migration, /create table if not exists public\.customers/);
   assert.match(migration, /create table if not exists public\.jobs/);
@@ -65,12 +69,13 @@ test("the app uses native Next.js and private Supabase Storage for Netlify", asy
 });
 
 test("security controls and durable request-update SMS are wired end to end", async () => {
-  const [security, actions, messages, uploads, sms, migration, operatorSetup, config, exampleEnv] = await Promise.all([
+  const [security, actions, messages, uploads, sms, media, migration, operatorSetup, config, exampleEnv] = await Promise.all([
     readFile(new URL("lib/security.ts", root), "utf8"),
     readFile(new URL("app/api/jobs/[id]/route.ts", root), "utf8"),
     readFile(new URL("app/api/jobs/[id]/messages/route.ts", root), "utf8"),
     readFile(new URL("app/api/jobs/[id]/uploads/route.ts", root), "utf8"),
     readFile(new URL("lib/sms.ts", root), "utf8"),
+    readFile(new URL("lib/media.ts", root), "utf8"),
     readFile(new URL("supabase/migrations/20260811000000_security_sms.sql", root), "utf8"),
     readFile(new URL("app/api/operator/setup/route.ts", root), "utf8"),
     readFile(new URL("next.config.ts", root), "utf8"),
@@ -85,6 +90,8 @@ test("security controls and durable request-update SMS are wired end to end", as
   assert.match(uploads, /Reply STOP to opt out/);
   assert.match(sms, /from\("sms_outbox"\)/);
   assert.match(sms, /api\.twilio\.com/);
+  assert.match(sms, /AbortSignal\.timeout\(8_000\)/);
+  assert.match(media, /AbortSignal\.timeout\(8_000\)/);
   assert.match(migration, /create table if not exists public\.rate_limits/);
   assert.match(migration, /create table if not exists public\.sms_outbox/);
   assert.match(migration, /delete from public\.sessions where role = 'customer'/);
@@ -156,6 +163,7 @@ test("customers can book only one active haul and stay focused on it", async () 
   assert.match(contracts, /ACTIVE_JOB_STATUSES/);
   assert.match(jobs, /\.in\("status", \[\.\.\.ACTIVE_JOB_STATUSES\]\)/);
   assert.match(jobs, /You already have an active haul/);
+  assert.match(jobs, /ask Haulway to close it/);
   assert.match(uploads, /finalizeError\?\.code === "23505"/);
   assert.match(migration, /before insert or update of upload_complete, status on public\.jobs/);
   assert.match(migration, /prevent_second_active_haul/);
@@ -165,8 +173,12 @@ test("customers can book only one active haul and stay focused on it", async () 
   assert.match(page, /activeJobId/);
   assert.match(page, /!focusLocked && <nav className="tab-bar">/);
   assert.match(page, /focusLocked \? <FocusContext \/>/);
+  assert.match(page, /closedFromAnotherSession/);
+  assert.match(page, /Your previous haul is closed\. You can book again\./);
+  assert.match(page, /notice && <p className="inline-notice" role="status">/);
   assert.match(styles, /\.app-shell\.focus-mode/);
   assert.match(styles, /\.focus-badge/);
+  assert.match(styles, /\.op-cancel-haul/);
 });
 
 test("ETA counts down in whole minutes and owner arrival is a durable swipe update", async () => {

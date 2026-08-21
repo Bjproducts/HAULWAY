@@ -81,13 +81,25 @@ export default function CustomerApp() {
       const currentView = nav.current;
       const currentActive = data.jobs.find((job) => job.id === currentView.openJobId && !FINISHED.has(job.status));
       const nextFocus = currentActive ?? data.jobs.find((job) => !FINISHED.has(job.status)) ?? null;
+      const currentStillVisible = Boolean(currentView.openJobId && data.jobs.some((job) => job.id === currentView.openJobId));
+      const closedFromAnotherSession = Boolean(currentView.openJobId && !nextFocus && !currentStillVisible);
       nav.current = nextFocus
         ? { screen: "app", tab: "requests", openJobId: nextFocus.id, activeJobId: nextFocus.id }
-        : { ...currentView, activeJobId: null };
+        : closedFromAnotherSession
+          ? { screen: "app", tab: "home", openJobId: null, activeJobId: null }
+          : { ...currentView, activeJobId: null };
       if (nextFocus && (currentView.screen !== "app" || currentView.tab !== "requests" || currentView.openJobId !== nextFocus.id)) {
         setScreen("app");
         setTab("requests");
         setOpenJobId(nextFocus.id);
+      } else if (closedFromAnotherSession) {
+        /* An owner can close a stuck haul from the operations portal. Release
+           the customer's focus lock on the next poll instead of leaving them
+           looking at a request that no longer appears in their list. */
+        setScreen("app");
+        setTab("home");
+        setOpenJobId(null);
+        setNotice("Your previous haul is closed. You can book again.");
       }
       jobSnapshot.current = new Map(data.jobs.map((job) => [job.id, job]));
       setJobs(data.jobs);
@@ -252,6 +264,7 @@ export default function CustomerApp() {
           customer={customer}
           activeCount={activeJobs.length}
           draft={draft}
+          notice={notice}
           onDiscardDraft={() => { clearDraft(); setDraft(null); }}
           onRequests={() => goTab("requests")}
           onPick={(picked) => {
@@ -300,7 +313,7 @@ function TabButton({ icon, label, active, badge = 0, onClick }: { icon: string; 
 
 /* ---------- Home ---------- */
 
-function HomeTab({ customer, activeCount, draft, onDiscardDraft, onRequests, onPick }: { customer: Customer; activeCount: number; draft: Draft | null; onDiscardDraft: () => void; onRequests: () => void; onPick: (service: Service) => void }) {
+function HomeTab({ customer, activeCount, draft, notice, onDiscardDraft, onRequests, onPick }: { customer: Customer; activeCount: number; draft: Draft | null; notice: string; onDiscardDraft: () => void; onRequests: () => void; onPick: (service: Service) => void }) {
   const atLimit = activeCount >= MAX_ACTIVE_REQUESTS;
   const [open, setOpen] = useState(false);
 
@@ -312,6 +325,7 @@ function HomeTab({ customer, activeCount, draft, onDiscardDraft, onRequests, onP
 
   return (
     <section className="home-tab">
+      {notice && <p className="inline-notice" role="status">{notice}</p>}
       <div className="home-greeting">
         <span className="micro-label enter" style={{ animationDelay: ".05s" }}>HI {customer.name.split(" ")[0].toUpperCase()}</span>
         <h1>

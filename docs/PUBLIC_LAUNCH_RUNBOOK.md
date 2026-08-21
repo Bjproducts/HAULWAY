@@ -21,6 +21,7 @@ This is the release gate for promoting `https://haulway.ca`. Do not advertise th
 - [ ] On a real phone, create a customer account, receive exactly one OTP, create a request, upload media, accept a quote, and receive transactional SMS updates.
 - [ ] In the owners-only portal, accept the job, set/change ETA, swipe arrived, chat, complete the job, and confirm the customer tracker updates.
 - [ ] Confirm the customer cannot create a second active request.
+- [ ] Cancel an unfinished haul from the owners-only portal; confirm the customer is returned home, sees the closure notice, and can immediately book another haul.
 - [ ] Confirm a wrong OTP, repeated resend, cross-site mutation, unsigned Twilio callback, driver login, driver application, and driver assignment all fail safely.
 - [ ] Confirm STOP and HELP behavior on the production Twilio sender.
 - [ ] Confirm no secret, raw OTP, full media URL, or customer address appears in Netlify function logs.
