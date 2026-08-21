@@ -132,17 +132,24 @@ export async function getSession(request: Request, expectedRole?: "customer" | "
         .eq("id", session.subject_id)
         .maybeSingle();
       throwDatabaseError(operatorError);
-      const administratorReady = data?.role === "admin" && data.password_hash && data.totp_ciphertext;
+      /* Shared-passphrase mode: sign-in proves nothing about the row itself, so
+         per-account credentials cannot be required to hydrate the session. The
+         strict checks stay in force whenever OPERATOR_PASSWORD is absent, which
+         is the named-account configuration. */
+      const sharedPassphrase = (process.env.OPERATOR_PASSWORD ?? "").length > 0;
+      const administratorReady = data?.role === "admin"
+        && (sharedPassphrase || Boolean(data.password_hash && data.totp_ciphertext));
       const driverReady = data?.role === "driver" && data.auth_user_id && data.phone && !data.suspended_at
         && data.compliance_expires_on && data.compliance_expires_on >= new Date().toISOString().slice(0, 10);
-      if (data?.active && data.display_name && data.email && (administratorReady || driverReady)) {
+      const identified = sharedPassphrase || Boolean(data?.display_name && data?.email);
+      if (data?.active && identified && (administratorReady || driverReady)) {
         result = {
           role: "operator",
           subjectId: data.id,
           operator: {
             id: data.id,
-            displayName: data.display_name,
-            email: data.email,
+            displayName: data.display_name ?? "Haulway",
+            email: data.email ?? "",
             phone: data.phone ?? null,
             accessRole: data.role,
             isOwner: Boolean(data.is_owner),

@@ -43,8 +43,15 @@ test("launch-blocking security controls are fail-closed in source and schema", a
   assert.doesNotMatch(auth, /CUSTOMER_PHONE_OTP/);
   assert.match(auth, /data\?\.auth_user_id/);
   assert.match(auth, /OPERATOR_IDLE_SECONDS/);
-  assert.match(operatorLogin, /verifyTotp/);
-  assert.match(operatorLogin, /consume_operator_totp/);
+  /* Operator MFA was deliberately traded away for a single shared passphrase
+     while Haulway is a one-person operation. These assertions now guard what is
+     left: the passphrase is never hardcoded, the comparison is constant time,
+     and guessing is still rate limited. Restore the two assertions above when
+     named accounts come back. */
+  assert.match(operatorLogin, /process\.env\.OPERATOR_PASSWORD/);
+  assert.doesNotMatch(operatorLogin, /["'`]123456["'`]/);
+  assert.match(operatorLogin, /constantTimeEqual/);
+  assert.match(operatorLogin, /consumeRateLimit/);
   assert.match(security, /APP_ORIGIN/);
   assert.match(security, /readJsonBody/);
   assert.match(uploads, /verifyStoredMediaHeader/);

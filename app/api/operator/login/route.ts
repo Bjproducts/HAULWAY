@@ -1,56 +1,53 @@
 import { getSupabase, throwDatabaseError } from "@/db";
-import { createSession, hashPassword, normalizeEmail, PASSWORD_ITERATIONS } from "@/lib/auth";
-import { decryptTotpSecret, verifyTotp } from "@/lib/mfa";
-import { internalError, jsonError } from "@/lib/responses";
-import { constantTimeEqual, consumeRateLimit, guardMutation, readJsonBody, requestFingerprint, requestId } from "@/lib/security";
+import { createSession } from "@/lib/auth";
+import { ConfigError, internalError, jsonError } from "@/lib/responses";
+import { constantTimeEqual, consumeRateLimit, guardMutation, readJsonBody } from "@/lib/security";
 
-const DUMMY_SALT = "12b8ecfd91ad5bb6b1d72b1da7bef83bdebb80841983de39";
-
+/*
+ * Single shared passphrase for the operator portal.
+ *
+ * This deliberately replaces the previous email + passphrase + TOTP sign-in
+ * while Haulway is a one-person operation. It is a real reduction in security:
+ * anyone holding the passphrase reaches every customer's address, photos and
+ * phone number, and there is no per-person accountability in the audit trail.
+ *
+ * The value lives in OPERATOR_PASSWORD rather than in this file so it is not
+ * published with the source. Login fails closed when it is unset.
+ *
+ * The per-driver accounts, invitations and MFA are still in the database and
+ * still enforced elsewhere; restoring them is a matter of putting the richer
+ * sign-in back, not rebuilding the model.
+ */
 export async function POST(request: Request) {
   const blocked = guardMutation(request);
   if (blocked) return blocked;
   try {
-    const body = await readJsonBody<{ email?: string; password?: string; totpCode?: string }>(request);
-    const email = normalizeEmail(body.email ?? "");
-    const password = body.password ?? "";
-    const totpCode = body.totpCode?.replace(/\D/g, "") ?? "";
-    if (!email || password.length > 128 || !/^\d{6}$/.test(totpCode)) return invalidCredentials();
+    const expected = process.env.OPERATOR_PASSWORD ?? "";
+    if (expected.length < 1) throw new ConfigError("OPERATOR_PASSWORD is not set.");
 
-    const [ipAllowed, accountAllowed] = await Promise.all([
-      consumeRateLimit(request, "operator-login-ip", 8, 15 * 60),
-      consumeRateLimit(request, "operator-login-account", 5, 15 * 60, email),
-    ]);
-    if (!ipAllowed || !accountAllowed) return jsonError("Too many sign-in attempts. Try again in 15 minutes.", 429);
+    const body = await readJsonBody<{ password?: string }>(request);
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!password || password.length > 200) return invalidPassphrase();
 
+    /* Still rate limited: a short passphrase is guessable, so throttling is the
+       only thing standing between the portal and a dictionary run. */
+    const allowed = await consumeRateLimit(request, "operator-login-ip", 10, 15 * 60);
+    if (!allowed) return jsonError("Too many sign-in attempts. Try again in 15 minutes.", 429);
+
+    if (!constantTimeEqual(password, expected)) return invalidPassphrase();
+
+    /* Sign in as the owner account so downstream role checks, job assignment and
+       the audit trail keep working unchanged. */
     const db = getSupabase();
     const { data: operator, error } = await db.from("operators")
-      .select("id, password_hash, password_salt, password_iterations, totp_ciphertext, totp_iv, active")
-      .eq("email", email)
+      .select("id")
       .eq("role", "admin")
+      .eq("active", true)
+      .order("is_owner", { ascending: false })
+      .limit(1)
       .maybeSingle();
     throwDatabaseError(error);
-
-    const iterations = operator?.password_iterations ?? PASSWORD_ITERATIONS;
-    const computed = await hashPassword(password, operator?.password_salt ?? DUMMY_SALT, iterations);
-    if (!operator?.active || !operator.password_hash || !constantTimeEqual(computed, operator.password_hash)
-      || !operator.totp_ciphertext || !operator.totp_iv) {
-      return invalidCredentials();
-    }
-
-    const secret = await decryptTotpSecret(operator.totp_ciphertext, operator.totp_iv);
-    const counter = await verifyTotp(secret, totpCode);
-    if (counter == null) return invalidCredentials();
-
-    const fingerprint = await requestFingerprint(request);
-    const { data: consumed, error: consumeError } = await db.rpc("consume_operator_totp", {
-      p_operator_id: operator.id,
-      p_counter: counter,
-      p_request_id: requestId(request),
-      p_ip_hash: fingerprint.ipHash,
-      p_user_agent_hash: fingerprint.userAgentHash,
-    });
-    throwDatabaseError(consumeError);
-    if (consumed !== true) return jsonError("That authenticator code was already used. Wait for the next code.", 409);
+    if (!operator) return jsonError("No active operator account exists yet. Run operator setup first.", 409);
 
     const cookie = await createSession("operator", operator.id, request);
     return Response.json({ ok: true }, { headers: { "Set-Cookie": cookie } });
@@ -59,6 +56,6 @@ export async function POST(request: Request) {
   }
 }
 
-function invalidCredentials() {
-  return jsonError("The email, passphrase, or authenticator code is incorrect.", 401);
+function invalidPassphrase() {
+  return jsonError("That passphrase is incorrect.", 401);
 }

@@ -198,16 +198,24 @@ function OperatorGate({ mode, error, onError, onSuccess }: { mode: "setup" | "lo
 
   async function submit(event: FormEvent) {
     event.preventDefault(); onError("");
+    /* Sign-in is a single shared passphrase while Haulway runs as one person.
+       Setup still creates a full named account with MFA, so the richer sign-in
+       can be restored without rebuilding anything. */
+    if (mode === "login") {
+      if (!password) return onError("Enter the passphrase.");
+      setBusy(true);
+      try { await fetch("/api/operator/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) }).then(readJson); onSuccess(); }
+      catch (caught) { onError(errorMessage(caught)); } finally { setBusy(false); }
+      return;
+    }
+
     if (!email.trim()) return onError("Enter your operator email.");
     if (password.length < 14) return onError("Use a passphrase of at least 14 characters.");
     if (!/^\d{6}$/.test(totpCode)) return onError("Enter the 6-digit code from your authenticator app.");
-    if (mode === "setup" && displayName.trim().length < 2) return onError("Enter the operator's full name.");
-    if (mode === "setup" && password !== confirm) return onError("The passphrases do not match.");
+    if (displayName.trim().length < 2) return onError("Enter the operator's full name.");
+    if (password !== confirm) return onError("The passphrases do not match.");
     setBusy(true);
-    const payload = mode === "setup"
-      ? { displayName, email, password, setupToken, totpSecret, totpCode }
-      : { email, password, totpCode };
-    try { await fetch(`/api/operator/${mode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(readJson); onSuccess(); }
+    try { await fetch("/api/operator/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName, email, password, setupToken, totpSecret, totpCode }) }).then(readJson); onSuccess(); }
     catch (caught) { onError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
@@ -226,7 +234,7 @@ function OperatorGate({ mode, error, onError, onSuccess }: { mode: "setup" | "lo
       <span className="op-gate-icon">H</span>
       <span className="micro-label">{mode === "setup" ? "FIRST-TIME SETUP" : "OPERATOR SIGN IN"}</span>
       <h1>{mode === "setup" ? "Secure your portal." : "Welcome back."}</h1>
-      <p>{mode === "setup" ? "Create a named account with a strong passphrase and authenticator verification." : "Use your named operator account and authenticator app."}</p>
+      <p>{mode === "setup" ? "Create a named account with a strong passphrase and authenticator verification." : "Enter the operator passphrase to reach the job board."}</p>
       {mode === "setup" && <label>Private setup token
         <input className="op-setup-token" type="password" autoComplete="off" value={setupToken} onChange={(event) => setSetupToken(event.target.value)} placeholder="From your environment settings" />
       </label>}
@@ -234,11 +242,11 @@ function OperatorGate({ mode, error, onError, onSuccess }: { mode: "setup" | "lo
         <input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Full name" />
       </label>
       }
-      <label>Operator email
-        <input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="operator@d-load.ca" />
-      </label>
+      {mode === "setup" && <label>Operator email
+        <input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="operator@haulway.ca" />
+      </label>}
       <label>{mode === "setup" ? "Create passphrase" : "Passphrase"}
-        <input type="password" autoComplete={mode === "setup" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 14 characters" />
+        <input type="password" autoComplete={mode === "setup" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={mode === "setup" ? "At least 14 characters" : "Operator passphrase"} />
       </label>
       {mode === "setup" && <label>Confirm passphrase
         <input type="password" autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} placeholder="Repeat the passphrase" />
@@ -248,12 +256,12 @@ function OperatorGate({ mode, error, onError, onSuccess }: { mode: "setup" | "lo
         <p>Choose “enter setup key,” name it HAULWAY, then enter this key:</p>
         <code>{totpSecret || "Generating secure key…"}</code>
       </div>}
-      <label>Authenticator code
+      {mode === "setup" && <label>Authenticator code
         <input className="op-code" type="text" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={totpCode} onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" />
-      </label>
+      </label>}
       {error && <p className="field-error" role="alert">{error}</p>}
       <button className="hw-primary wide" disabled={busy}>{busy ? "Please wait…" : mode === "setup" ? "Create operator account" : "Sign in"}<span aria-hidden="true">→</span></button>
-      <span className="op-gate-trust">Named access · MFA protected · 30-minute idle lock</span>
+      <span className="op-gate-trust">{mode === "setup" ? "Named access · MFA protected · 30-minute idle lock" : "Shared passphrase · 30-minute idle lock"}</span>
       {mode === "setup" && <small>Do this before sharing the customer website.</small>}
       {mode === "login" && <a className="op-apply-link" href="/driver/apply">New driver? Apply for approval <span>→</span></a>}
     </form>
