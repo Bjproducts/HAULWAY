@@ -1103,6 +1103,10 @@ button:disabled { cursor: not-allowed !important; opacity: .42; }
 .op-quote button { min-height: var(--h-lg); padding: 0 var(--s5); border: 0; border-radius: var(--r-md); background: var(--orange-dk); color: #fff; font-size: var(--t-md); font-weight: 800; cursor: pointer; box-shadow: var(--e1); }
 .op-quote button:hover { background: var(--orange); }
 .op-cancelled { min-height: var(--h-md); display: grid; place-items: center; border-radius: var(--r-md); background: var(--danger-bg); color: var(--danger-fg); font-size: var(--t-sm); font-weight: 800; }
+.op-cancel-haul { width: 100%; min-height: var(--h-sm); margin-top: var(--s3); border: 1px solid color-mix(in srgb, var(--danger-fg) 30%, transparent); border-radius: var(--r-md); background: transparent; color: var(--danger-fg); font-size: var(--t-sm); font-weight: 800; cursor: pointer; transition: background .18s ease, transform .18s ease; }
+.op-cancel-haul:hover { background: var(--danger-bg); }
+.op-cancel-haul:active { transform: scale(.99); }
+.op-cancel-haul:disabled { opacity: .55; cursor: wait; }
 
 /* ---------- driver approval console ---------- */
 .driver-admin, .driver-admin-review { min-height: 0; padding: var(--s4) var(--s4) calc(env(safe-area-inset-bottom) + var(--s6)); overflow-y: auto; }

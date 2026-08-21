@@ -9,6 +9,8 @@ Last updated: August 21, 2026
 - [x] Remove driver assignment and driver-management controls from the owner portal.
 - [x] Restrict every operator-side job action to administrators.
 - [x] Keep accept, quote, ETA, arrival swipe, chat, completion, and payment controls in the owners-only portal.
+- [x] Let an owner cancel any unfinished haul from a confirmation sheet while preserving its record.
+- [x] Release the customer focus lock automatically after an owner closes a haul so another booking can begin.
 - [x] Keep legacy driver tables dormant instead of destructively changing production data.
 
 The older driver workflow sections below are retained as implementation history and future planning material; those features are not enabled in the launch product.
@@ -19,6 +21,7 @@ This checklist separates work completed and verified in the prepared code from p
 
 - [x] Store customer requests and request updates in Supabase instead of browser-only state.
 - [x] Permit only one active booking per customer at a time.
+- [x] Give owners a recovery action for stale active bookings instead of requiring database edits.
 - [x] Keep a customer focused on the active request until it reaches a terminal state.
 - [x] Redirect the customer to the active tracking screen after a driver accepts the request.
 - [x] Restore the progress-first journey showing booking, review, ETA, arrival, work, and completion states.
@@ -38,6 +41,7 @@ This checklist separates work completed and verified in the prepared code from p
 - [x] Remove the “Payment only unlocks after both sides confirm” copy.
 - [x] Centre the completion heading and confirmation area.
 - [x] Compact the tracking experience to reduce unnecessary scrolling.
+- [x] Bound Twilio and stored-media verification requests so a slow provider cannot hold booking requests until the hosting timeout.
 
 ## Driver job workflow
 

@@ -126,7 +126,7 @@ export async function POST(request: Request) {
       .in("status", [...ACTIVE_JOB_STATUSES]);
     throwDatabaseError(countError);
     if ((activeCount ?? 0) >= MAX_ACTIVE_REQUESTS) {
-      return jsonError("You already have an active haul. Finish or cancel it before booking another.", 409);
+      return jsonError("You already have an active haul. Finish it or ask Haulway to close it before booking another.", 409);
     }
 
     const jobId = crypto.randomUUID();

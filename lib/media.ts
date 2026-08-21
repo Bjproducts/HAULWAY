@@ -41,6 +41,7 @@ export async function verifyStoredMediaHeader(objectKey: string, expectedType: s
   const response = await fetch(data.signedUrl, {
     headers: { Range: "bytes=0-127" },
     cache: "no-store",
+    signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok || !response.body) throw new UnsafeMediaError("An upload could not be read for verification.");
 

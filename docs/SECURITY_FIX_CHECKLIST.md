@@ -9,6 +9,9 @@ Last updated: August 21, 2026
 - [x] Driver-management endpoints return HTTP 410.
 - [x] The job-assignment action returns HTTP 410.
 - [x] Only active administrator sessions can access or mutate the operator side of any job.
+- [x] Administrator cancellation is authorized server-side, confirmed in the interface, and written to the audit log.
+- [x] Stale booking locks can be released without deleting the request or bypassing the one-active-haul database invariant.
+- [x] Twilio and stored-media network calls have strict time limits; failed SMS remains in the durable outbox for retry.
 
 Driver controls listed later in this document describe the dormant, previously prepared fleet model and are not enabled for launch.
 

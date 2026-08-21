@@ -7,6 +7,8 @@ HAULWAY is an Edmonton junk-removal and small-moving service with two private in
 
 Public driver applications, driver SMS sign-in, driver assignment, and driver-management endpoints are disabled for the owner-operated launch. The legacy database tables remain dormant so a future fleet model can be designed and migrated deliberately without destructive production changes.
 
+The one-active-haul guard remains enforced in both the API and database. If an unfinished request must be closed, an owner can cancel it from the operations portal; the audit record is retained and the customer is automatically released to book again.
+
 Customer and request data lives in Supabase Postgres. Uploaded media stays in a private Supabase Storage bucket and is exposed only through short-lived signed URLs after a server-side access check. Request events are written to an SMS outbox, sent immediately through Twilio, and retried by a scheduled Netlify function.
 
 ## Supabase setup
