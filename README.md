@@ -3,21 +3,22 @@
 HAULWAY is an Edmonton junk-removal and small-moving service with two private interfaces:
 
 - `/` — SMS-verified customer access, photo/video requests, quotes, chat, payment choice, ETA, and completion confirmation.
-- `/driver` — separate administrator and SMS-verified approved-driver access for dispatch, ETAs, quotes, chat, payment tracking, and completion confirmation.
-- `/driver/apply` — privacy-conscious independent-contractor application with SMS ownership verification and admin approval.
+- `/driver` — owners-only operations portal for accepting every order, ETAs, quotes, chat, payment tracking, arrival, and completion confirmation.
+
+Public driver applications, driver SMS sign-in, driver assignment, and driver-management endpoints are disabled for the owner-operated launch. The legacy database tables remain dormant so a future fleet model can be designed and migrated deliberately without destructive production changes.
 
 Customer and request data lives in Supabase Postgres. Uploaded media stays in a private Supabase Storage bucket and is exposed only through short-lived signed URLs after a server-side access check. Request events are written to an SMS outbox, sent immediately through Twilio, and retried by a scheduled Netlify function.
 
 ## Supabase setup
 
-1. In the Supabase SQL editor, run every file in `supabase/migrations` in filename order. The migrations create the private `job-media` bucket, verified Auth links, durable rate limits, the SMS outbox, named MFA operator accounts, scoped driver access, upload quarantine metadata, and immutable audit records.
+1. In the Supabase SQL editor, run every file in `supabase/migrations` in filename order. The migrations create the private `job-media` bucket, verified Auth links, durable rate limits, the SMS outbox, operator accounts, upload quarantine metadata, and immutable audit records. Legacy driver schema is retained but is not reachable by the launch application.
 2. In **Authentication → Providers → Phone**, enable phone sign-in and configure an SMS provider. Customer sessions are created only after Supabase verifies the six-digit SMS code.
 3. Review the Auth rate limits in the Supabase dashboard before production launch.
 4. Copy `.env.example` to `.env` and provide the Supabase values. Keep `SUPABASE_SECRET_KEY` server-only.
 
 ## Transactional SMS setup
 
-Request receipt, driver acceptance, ETA, quote, operator chat, completion, and payment updates are sent to the customer's verified number.
+Request receipt, Haulway acceptance, ETA, quote, owner chat, completion, and payment updates are sent to the customer's verified number.
 
 1. Create a Twilio Messaging Service or choose a Twilio sender number.
 2. Create a restricted Twilio API key for sending and set `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY`, and `TWILIO_API_KEY_SECRET`. Also set the account Auth Token server-side so callback signatures can be verified.

@@ -18,7 +18,7 @@ export type AuthSession = {
     displayName: string;
     email: string;
     phone: string | null;
-    accessRole: "admin" | "driver";
+    accessRole: "admin";
     isOwner: boolean;
   };
 };
@@ -128,7 +128,7 @@ export async function getSession(request: Request, expectedRole?: "customer" | "
     } else {
       const { data, error: operatorError } = await getSupabase()
         .from("operators")
-        .select("id, display_name, email, phone, role, is_owner, active, password_hash, totp_ciphertext, auth_user_id, compliance_expires_on, suspended_at")
+        .select("id, display_name, email, phone, role, is_owner, active, password_hash, totp_ciphertext")
         .eq("id", session.subject_id)
         .maybeSingle();
       throwDatabaseError(operatorError);
@@ -139,10 +139,10 @@ export async function getSession(request: Request, expectedRole?: "customer" | "
       const sharedPassphrase = (process.env.OPERATOR_PASSWORD ?? "").length > 0;
       const administratorReady = data?.role === "admin"
         && (sharedPassphrase || Boolean(data.password_hash && data.totp_ciphertext));
-      const driverReady = data?.role === "driver" && data.auth_user_id && data.phone && !data.suspended_at
-        && data.compliance_expires_on && data.compliance_expires_on >= new Date().toISOString().slice(0, 10);
       const identified = sharedPassphrase || Boolean(data?.display_name && data?.email);
-      if (data?.active && identified && (administratorReady || driverReady)) {
+      /* The public launch is owner-operated. Rejecting every non-admin row here
+         also invalidates any legacy driver session before it can reach a job. */
+      if (data?.active && identified && administratorReady) {
         result = {
           role: "operator",
           subjectId: data.id,
@@ -151,7 +151,7 @@ export async function getSession(request: Request, expectedRole?: "customer" | "
             displayName: data.display_name ?? "Haulway",
             email: data.email ?? "",
             phone: data.phone ?? null,
-            accessRole: data.role,
+            accessRole: "admin",
             isOwner: Boolean(data.is_owner),
           },
         };

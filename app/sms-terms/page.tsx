@@ -7,7 +7,7 @@ export default function SmsTermsPage() {
   return <LegalPage eyebrow="TEXT MESSAGE PROGRAM" title="SMS Terms" updated="August 21, 2026">
     <p>When you provide a mobile number and agree to receive texts, you authorize HAULWAY to send automated or manually initiated messages needed to verify and operate your account or application.</p>
     <h2>Messages you may receive</h2>
-    <p>Messages may include one-time verification codes, request confirmations, quote and assignment updates, ETA or arrival updates, completion and payment-status notices, driver-application decisions, and important safety or support information. We will not send promotional marketing texts under this consent; marketing would require a separate choice.</p>
+    <p>Messages may include one-time verification codes, request confirmations, quote updates, ETA or arrival updates, completion and payment-status notices, and important safety or support information. We will not send promotional marketing texts under this consent; marketing would require a separate choice.</p>
     <h2>Frequency and charges</h2>
     <p>Message frequency varies with your sign-ins, applications, and active requests. Message and data rates may apply according to your wireless plan. Carriers are not liable for delayed or undelivered messages, and delivery is not guaranteed.</p>
     <h2>Stopping messages</h2>

@@ -64,43 +64,45 @@ test("launch-blocking security controls are fail-closed in source and schema", a
   assert.match(migration, /operators_single_owner/);
 });
 
-test("drivers apply with verified SMS and remain isolated until an admin approves current compliance", async () => {
-  const [driverRequest, driverVerify, driverReview, driverSchema, auth, jobs, portal, application] = await Promise.all([
+test("the owner-operated launch disables driver onboarding, access, assignment, and management", async () => {
+  const [driverRequest, driverVerify, driverList, driverReview, operators, operatorAction, driverSchema, auth, jobs, jobList, portal, application] = await Promise.all([
     readFile(new URL("app/api/driver/auth/request/route.ts", root), "utf8"),
     readFile(new URL("app/api/driver/auth/verify/route.ts", root), "utf8"),
+    readFile(new URL("app/api/driver/applications/route.ts", root), "utf8"),
     readFile(new URL("app/api/driver/applications/[id]/route.ts", root), "utf8"),
+    readFile(new URL("app/api/operators/route.ts", root), "utf8"),
+    readFile(new URL("app/api/operators/[id]/route.ts", root), "utf8"),
     readFile(new URL("supabase/migrations/20260819100000_driver_onboarding.sql", root), "utf8"),
     readFile(new URL("lib/auth.ts", root), "utf8"),
     readFile(new URL("app/api/jobs/[id]/route.ts", root), "utf8"),
+    readFile(new URL("app/api/jobs/route.ts", root), "utf8"),
     readFile(new URL("app/driver/page.tsx", root), "utf8"),
     readFile(new URL("app/driver/apply/page.tsx", root), "utf8"),
   ]);
-  assert.match(driverRequest, /purpose === "application"/);
-  assert.match(driverRequest, /shouldCreateUser: purpose === "application"/);
-  assert.match(driverRequest, /cannot enumerate approved/);
-  assert.match(driverVerify, /verifyOtp/);
-  assert.match(driverVerify, /validateDriverApplication/);
-  assert.match(driverReview, /review_driver_application/);
-  assert.match(driverReview, /complianceConfirmed/);
+  for (const route of [driverRequest, driverVerify, driverList, driverReview, operators, operatorAction]) {
+    assert.match(route, /410/);
+    assert.doesNotMatch(route, /getSupabase|createSession|verifyOtp|review_driver_application/);
+  }
+  assert.match(application, /permanentRedirect\("\/driver"\)/);
+  assert.match(auth, /administratorReady/);
+  assert.doesNotMatch(auth, /driverReady/);
+  assert.match(jobs, /Driver assignment has been removed/);
+  assert.match(jobs, /410/);
+  assert.doesNotMatch(jobList, /accessRole === "driver"/);
+  assert.doesNotMatch(portal, /DriverSmsLogin|DriverManagement|\/driver\/apply|assign_driver/);
+  assert.match(portal, /Owners only/);
+  /* Keep the old schema dormant so this product change does not destroy data
+     or force a risky production migration. */
   assert.match(driverSchema, /create table public\.driver_applications/);
   assert.match(driverSchema, /create table public\.driver_compliance/);
-  assert.match(driverSchema, /refresh_driver_compliance/);
-  assert.match(driverSchema, /where role = 'driver'/);
-  assert.match(auth, /compliance_expires_on/);
-  assert.match(jobs, /body\.action === "assign_driver"/);
-  assert.match(jobs, /accessRole !== "admin"/);
-  assert.match(portal, /DriverSmsLogin/);
-  assert.match(application, /independent contractor using your own vehicle/i);
-  assert.doesNotMatch(application, /social insurance number/i);
 });
 
 test("only the owner can issue single-use named administrator invitations", async () => {
-  const [invitations, acceptance, adminAction, schema, management] = await Promise.all([
+  const [invitations, acceptance, adminAction, schema] = await Promise.all([
     readFile(new URL("app/api/operator/invitations/route.ts", root), "utf8"),
     readFile(new URL("app/api/operator/invitations/accept/route.ts", root), "utf8"),
     readFile(new URL("app/api/operator/admins/[id]/route.ts", root), "utf8"),
     readFile(new URL("supabase/migrations/20260819110000_admin_invitations.sql", root), "utf8"),
-    readFile(new URL("app/driver/driver-management.tsx", root), "utf8"),
   ]);
   assert.match(invitations, /operator\?\.isOwner/);
   assert.match(invitations, /token_hash: await sha256\(token\)/);
@@ -111,14 +113,12 @@ test("only the owner can issue single-use named administrator invitations", asyn
   assert.match(schema, /operator_invitations_pending_email/);
   assert.match(schema, /for update/);
   assert.match(schema, /consumed_at = clock_timestamp\(\)/);
-  assert.match(management, /Create 24-hour invitation/);
 });
 
 test("public launch surfaces enforce bot validation, SMS consent, and legal discovery", async () => {
-  const [turnstile, register, driverRequest, customerPage, driverApplication, privacy, terms, smsTerms, robots, sitemap] = await Promise.all([
+  const [turnstile, register, customerPage, driverApplication, privacy, terms, smsTerms, robots, sitemap] = await Promise.all([
     readFile(new URL("lib/turnstile.ts", root), "utf8"),
     readFile(new URL("app/api/auth/register/route.ts", root), "utf8"),
-    readFile(new URL("app/api/driver/auth/request/route.ts", root), "utf8"),
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/driver/apply/page.tsx", root), "utf8"),
     readFile(new URL("app/privacy/page.tsx", root), "utf8"),
@@ -134,11 +134,11 @@ test("public launch surfaces enforce bot validation, SMS consent, and legal disc
   assert.match(turnstile, /throw new ConfigError\("Turnstile site and secret keys must both be configured/);
   assert.match(register, /verifyTurnstile/);
   assert.match(register, /smsConsented !== true/);
-  assert.match(driverRequest, /verifyTurnstile/);
   assert.match(customerPage, /STOP to opt out; HELP for help/);
-  assert.match(driverApplication, /SMS Terms/);
+  assert.match(driverApplication, /permanentRedirect\("\/driver"\)/);
   assert.match(privacy, /Supabase, and Twilio/);
-  assert.match(terms, /independent contractors/);
+  assert.match(terms, /HAULWAY owners currently accept and perform requests directly/);
+  assert.doesNotMatch(terms, /independent contractors/);
   assert.match(smsTerms, /promotional marketing texts/);
   assert.match(robots, /sitemap\.xml/);
   assert.match(sitemap, /https:\/\/haulway\.ca\/privacy/);

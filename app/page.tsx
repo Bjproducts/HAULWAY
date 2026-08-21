@@ -216,7 +216,7 @@ export default function CustomerApp() {
          "request sent" screen only repeated what this page already says. */
       onCreated={async (jobId) => {
         clearDraft(); setDraft(null);
-        setNotice("Booked. We're finding you a driver.");
+        setNotice("Request sent. Haulway is reviewing it now.");
         setTab("requests"); setOpenJobId(jobId); setScreen("app");
         await refreshJobs();
       }}
@@ -408,13 +408,13 @@ function JobRow({ job, unread, onOpen }: { job: Job; unread: boolean; onOpen: (i
     <strong>{job.item}</strong>
     <small>{shortDate(job.scheduledDate)} · {job.scheduledTime}</small>
     <span className="job-row-location">{job.pickup}{job.dropoff ? ` → ${job.dropoff}` : ""}</span>
-    <b>{job.quoteCents ? money(job.quoteCents) : job.status === "requested" ? "Waiting on a driver" : "Quote coming"}</b>
+    <b>{job.quoteCents ? money(job.quoteCents) : job.status === "requested" ? "Waiting on Haulway" : "Quote coming"}</b>
     <i aria-hidden="true">→</i>
   </button>;
 }
 
 function JobJourney({ status }: { status: string }) {
-  const stages = ["Requested", "Driver found", "Quote", "Haul booked", "Complete"];
+  const stages = ["Requested", "Haulway accepted", "Quote", "Haul booked", "Complete"];
   const reached = status === "requested" ? 1 : status === "approved" ? 2 : status === "quoted" ? 3 : status === "accepted" || status === "in_progress" ? 4 : 5;
   return <ol className="job-journey" aria-label={`Haul progress: ${stages[Math.min(reached - 1, stages.length - 1)]}`}>
     {stages.map((stage, index) => {
@@ -521,20 +521,20 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
   const cancelSheet = confirmCancel && <div className="cancel-sheet" role="dialog" aria-modal="true">
     <div className="cancel-sheet-card">
       <h3>Cancel this request?</h3>
-      <p>It disappears from your requests and the driver is told.</p>
+      <p>It disappears from your requests and Haulway is notified.</p>
       <div><button disabled={busy} onClick={() => setConfirmCancel(false)}>Keep it</button><button className="danger" disabled={busy} onClick={() => void cancel()}>Yes, cancel</button></div>
     </div>
   </div>;
 
-  /* Nothing to talk about until a driver takes it — so no chat, no photos, no details. */
+  /* Nothing to talk about until Haulway accepts it — so no chat, no photos, no details. */
   if (job.status === "requested") return <section className="waiting-page">
     <div className="sub-head">{focusLocked ? <FocusContext /> : <button className="back-link" onClick={onBack}>← Requests</button>}<span className="status-pill requested">{statusLabel(job.status)}</span></div>
     <div className="waiting-body">
       {banner && <p className="booked-banner" role="status">✓ {banner}</p>}
       <span className="radar" aria-hidden="true"><i /><i /><i /><b>🚚</b></span>
       <JobJourney status={job.status} />
-      <h2>Looking for a driver</h2>
-      <p>We&apos;re finding a Haulway driver for this haul. You&apos;ll get a notification the moment one takes it.</p>
+      <h2>Haulway is reviewing your request</h2>
+      <p>An owner will accept it and send your quote and arrival updates. You&apos;ll get a notification the moment it moves forward.</p>
       <span className="waiting-meta">{job.item} · {shortDate(job.scheduledDate)} · {displayTime(job.scheduledTime)}</span>
       <span className="waiting-assurance"><i aria-hidden="true" />You can leave this screen—we&apos;ll bring you back.</span>
     </div>
@@ -563,7 +563,7 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
     </div>
 
     <div className="chat-scroll" ref={chatScrollRef} role="log" aria-live="polite" aria-label="Conversation with Haulway">
-      {!job.messages.length && !pending.length && <p className="chat-hint">Chat is here when you need it. Ask about access, timing, or anything your driver should know.</p>}
+      {!job.messages.length && !pending.length && <p className="chat-hint">Chat is here when you need it. Ask Haulway about access, timing, or anything else we should know.</p>}
       <MessageList messages={job.messages} mine="customer" nameFor={(sender) => sender === "customer" ? "You" : "Haulway"} pending={pending} />
     </div>
     {!chatPinned && <button className="jump-latest" onClick={jumpToLatest}>Latest<span aria-hidden="true">↓</span></button>}
@@ -573,11 +573,11 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
     <Composer value={message} onChange={setMessage} onSend={send} busy={false} placeholder="Message Haulway…" />
   </section>;
 
-  const headline = job.driverArrived ? "Your driver has arrived." : ({
-    approved: "Your driver is locked in.",
+  const headline = job.driverArrived ? "Haulway has arrived." : ({
+    approved: "Haulway accepted your request.",
     quoted: "Your quote is ready.",
     accepted: "Your haul is booked.",
-    in_progress: "Your driver is on the way.",
+    in_progress: "Haulway is on the way.",
     completed: "Your haul is complete.",
   } as Record<string, string>)[job.status] ?? "Your haul is moving.";
   const ratingPending = job.status === "completed" && job.customerRating == null && !job.ratingSkipped;
@@ -604,7 +604,7 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
 
       <section className={`tracker-summary ${job.status === "completed" ? "complete" : ""} ${job.driverArrived ? "arrived" : ""} enter`} style={{ animationDelay: ".08s" }}>
         <div className="tracker-copy">
-          <span className="tracker-kicker"><i aria-hidden="true" />{job.status === "completed" ? "HAUL COMPLETE" : job.driverArrived ? "DRIVER ARRIVED" : "LIVE TRACKING"}</span>
+          <span className="tracker-kicker"><i aria-hidden="true" />{job.status === "completed" ? "HAUL COMPLETE" : job.driverArrived ? "HAULWAY ARRIVED" : "LIVE TRACKING"}</span>
           <h2>{headline}</h2>
           <p>{job.status === "completed"
             ? !job.paymentMethod ? "Choose how you'll pay to wrap up." : "Everything is wrapped up."
@@ -646,7 +646,7 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
         </section>}
 
         {job.status === "completed" && !job.paymentMethod && <section className="request-action payment">
-          <div><small>FINAL STEP</small><strong>How will you pay?</strong><p>Choose the method you&apos;ll use with your driver.</p></div>
+          <div><small>FINAL STEP</small><strong>How will you pay?</strong><p>Choose the method you&apos;ll use with Haulway.</p></div>
           <div className="request-action-row">
             <button className="pay-option" disabled={busy} onClick={() => void action("payment_method", { method: "interac" })}>Interac e-Transfer</button>
             <button className="pay-option" disabled={busy} onClick={() => void action("payment_method", { method: "cash" })}>Cash</button>
@@ -720,7 +720,7 @@ function EtaCountdown({ job }: { job: Job }) {
   }, [job.etaDueAt, job.driverArrived]);
 
   if (job.driverArrived) return <div className="tracker-eta arrived" role="status">
-    <small>DRIVER STATUS</small>
+    <small>HAULWAY STATUS</small>
     <strong>Arrived</strong>
     <span><i aria-hidden="true" />At your pickup</span>
   </div>;
@@ -759,7 +759,7 @@ function RatingPrompt({ busy, exit, paymentMethod, paymentStatus, amount, onRate
       <span><small>{paymentStatus === "paid" ? "PAYMENT RECEIVED" : "PAYMENT METHOD"}</small><strong>{paymentMethod === "interac" ? "Interac e-Transfer" : "Cash"}{amount ? ` · ${money(amount)}` : ""}</strong></span>
       {paymentMethod === "interac" && paymentStatus !== "paid"
         ? INTERAC_EMAIL ? <a href={`mailto:${INTERAC_EMAIL}`}>{INTERAC_EMAIL}</a> : <em>Contact Haulway for payment instructions</em>
-        : <em>{paymentStatus === "paid" ? "Received ✓" : "Pay your driver directly"}</em>}
+        : <em>{paymentStatus === "paid" ? "Received ✓" : "Pay Haulway directly"}</em>}
     </div>
     <div className="rating-stars" role="group" aria-label="Rate your haul from 1 to 5 stars">
       {[1, 2, 3, 4, 5].map((star) => <button key={star} type="button" disabled={busy} className={star <= rating ? "selected" : ""} aria-label={`${star} star${star === 1 ? "" : "s"}`} aria-pressed={star === rating} onClick={() => setRating(star)}>{star <= rating ? "★" : "☆"}</button>)}
@@ -801,7 +801,7 @@ function BookingLoader({ done, total }: { done: number; total: number }) {
   return <main className="booking-loader" role="status" aria-live="polite">
     <TruckScene />
     <h2>Booking your haul…</h2>
-    <p>{done < total ? `Uploading photo ${Math.min(done + 1, total)} of ${total}.` : "Putting it in front of our drivers."}</p>
+    <p>{done < total ? `Uploading photo ${Math.min(done + 1, total)} of ${total}.` : "Sending it to Haulway for review."}</p>
     <span className="booking-bar"><i style={{ width: `${done < total ? Math.max(pct, 6) : 100}%` }} /></span>
   </main>;
 }
@@ -1140,7 +1140,7 @@ function LocationBlock({ title, index, inputId, address, onAddress, placeholder,
         <i aria-hidden="true">⌄</i>
       </span>
     </label>
-    {/* Revealed only for an apartment — the driver needs a door to knock on. */}
+    {/* Revealed only for an apartment — Haulway needs the correct door. */}
     <div className={`unit-slot ${needsUnit ? "open" : ""}`} aria-hidden={!needsUnit}>
       <div className="unit-slot-inner">
         <label className="unit-field">
@@ -1175,7 +1175,7 @@ function ChipGroup({ label, options, value, onChange, two = false }: { label: st
 function describeJobUpdate(before: Job, after: Job): Omit<InAppUpdate, "id" | "jobId"> | null {
   const accepted = before.status === "requested" && after.status !== "requested" && after.status !== "cancelled";
   if (accepted) return {
-    title: "A driver accepted your haul",
+    title: "Haulway accepted your haul",
     detail: `${after.item} · ${after.eta ? `ETA ${after.eta}` : "Opening live tracking"}`,
     icon: "🚚",
   };
@@ -1187,21 +1187,21 @@ function describeJobUpdate(before: Job, after: Job): Omit<InAppUpdate, "id" | "j
   };
 
   if (!before.driverArrived && after.driverArrived) return {
-    title: "Your driver has arrived",
+    title: "Haulway has arrived",
     detail: `${after.item} · At your pickup address`,
     icon: "✓",
   };
 
   /* The displayed minute naturally changes as time passes; only a new deadline
-     from the driver should create a notification. Legacy free-text ETAs still work. */
+     from Haulway should create a notification. Legacy free-text ETAs still work. */
   if (before.etaDueAt !== after.etaDueAt || !before.etaDueAt && !after.etaDueAt && before.eta !== after.eta) return {
-    title: after.eta ? "Your ETA was updated" : "Your driver is updating the ETA",
+    title: after.eta ? "Your ETA was updated" : "Haulway is updating the ETA",
     detail: `${after.item}${after.eta ? ` · Arriving ${after.eta}` : " · Check back shortly"}`,
     icon: "🕒",
   };
 
   if (!before.operatorConfirmed && after.operatorConfirmed) return {
-    title: "Your driver marked the haul complete",
+    title: "Haulway marked the haul complete",
     detail: `${after.item} · Open the request to confirm`,
     icon: "✓",
   };
@@ -1214,10 +1214,10 @@ function describeJobUpdate(before: Job, after: Job): Omit<InAppUpdate, "id" | "j
 
   if (before.status !== after.status) {
     const statusCopy: Record<string, { title: string; detail: string; icon: string }> = {
-      approved: { title: "A driver accepted your haul", detail: "Open live tracking for the latest ETA", icon: "🚚" },
+      approved: { title: "Haulway accepted your haul", detail: "Open live tracking for the latest ETA", icon: "🚚" },
       quoted: { title: "Your quote is ready", detail: "Open the request to review it", icon: "💬" },
-      accepted: { title: "Your haul is booked", detail: "Your driver will keep the ETA updated", icon: "✓" },
-      in_progress: { title: "Your driver is on the way", detail: after.eta ? `Arriving ${after.eta}` : "Open live tracking for updates", icon: "🚚" },
+      accepted: { title: "Your haul is booked", detail: "Haulway will keep the ETA updated", icon: "✓" },
+      in_progress: { title: "Haulway is on the way", detail: after.eta ? `Arriving ${after.eta}` : "Open live tracking for updates", icon: "🚚" },
       completed: { title: "Your haul is complete", detail: "Open the request for payment details", icon: "✓" },
       cancelled: { title: "Your haul was cancelled", detail: "Open the request for details", icon: "!" },
     };
@@ -1280,7 +1280,7 @@ function paymentSummary(method: "interac" | "cash", status: "unpaid" | "paid", a
   if (status === "paid") return `${price.trim() || "Payment"} received by Haulway.`;
   return method === "interac"
     ? INTERAC_EMAIL ? `Send${price} to ${INTERAC_EMAIL}.` : "Contact Haulway for verified Interac instructions."
-    : `Pay${price} directly to your driver.`;
+    : `Pay${price} directly to Haulway.`;
 }
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function localDate() { const date = new Date(); const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 10); }
@@ -1292,6 +1292,6 @@ function displayTime(value: string) {
   return `${hours % 12 === 0 ? 12 : hours % 12}:${match[2]} ${hours < 12 ? "AM" : "PM"}`;
 }
 function statusLabel(status: string, driverArrived = false) {
-  if (driverArrived && status !== "completed") return "Driver arrived";
-  return ({ requested: "Looking for a driver", approved: "Driver found", quoted: "Quote ready", accepted: "Booked", in_progress: "On the way", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status;
+  if (driverArrived && status !== "completed") return "Haulway arrived";
+  return ({ requested: "Under review", approved: "Accepted", quoted: "Quote ready", accepted: "Booked", in_progress: "On the way", completed: "Complete", cancelled: "Cancelled" } as Record<string, string>)[status] ?? status;
 }

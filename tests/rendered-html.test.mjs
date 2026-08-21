@@ -78,7 +78,7 @@ test("security controls and durable request-update SMS are wired end to end", as
   ]);
   assert.match(security, /Cross-site request blocked/);
   assert.match(security, /consume_rate_limit/);
-  assert.match(actions, /Mark the driver as arrived before confirming the job complete/);
+  assert.match(actions, /Confirm arrival before marking the job complete/);
   assert.match(actions, /job must be completed before payment is recorded/i);
   assert.match(actions, /notifyJobSms/);
   assert.match(messages, /notifyJobSms/);
@@ -169,8 +169,8 @@ test("customers can book only one active haul and stay focused on it", async () 
   assert.match(styles, /\.focus-badge/);
 });
 
-test("ETA counts down in whole minutes and driver arrival is a durable swipe update", async () => {
-  const [customer, driver, actions, contracts, jobsData, styles] = await Promise.all([
+test("ETA counts down in whole minutes and owner arrival is a durable swipe update", async () => {
+  const [customer, owner, actions, contracts, jobsData, styles] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/driver/page.tsx", root), "utf8"),
     readFile(new URL("app/api/jobs/[id]/route.ts", root), "utf8"),
@@ -183,7 +183,7 @@ test("ETA counts down in whole minutes and driver arrival is a durable swipe upd
   assert.match(actions, /body\.action === "mark_arrived"/);
   assert.match(actions, /driver_arrived_at: new Date\(\)\.toISOString\(\)/);
   assert.match(actions, /ARRIVAL_STATUSES\.has\(job\.status\)/);
-  assert.match(actions, /Your driver has arrived at the pickup address/);
+  assert.match(actions, /Haulway has arrived at the pickup address/);
   assert.match(contracts, /etaDueAt: string \| null/);
   assert.match(contracts, /driverArrived: boolean/);
   assert.match(jobsData, /etaDeadline\(job\.eta\)/);
@@ -193,10 +193,10 @@ test("ETA counts down in whole minutes and driver arrival is a durable swipe upd
   assert.match(customer, /remaining % 60_000 \|\| 60_000/);
   assert.match(customer, /window\.setInterval\(\(\) => setNow\(Date\.now\(\)\), 60_000\)/);
   assert.doesNotMatch(customer, /seconds? remaining/i);
-  assert.match(driver, /Swipe when you arrive/);
-  assert.match(driver, /action\("mark_arrived"\)/);
-  assert.match(driver, /ARRIVAL_STATUSES\.has\(job\.status\)/);
-  assert.match(driver, /Change timer/);
+  assert.match(owner, /Swipe when you arrive/);
+  assert.match(owner, /action\("mark_arrived"\)/);
+  assert.match(owner, /ARRIVAL_STATUSES\.has\(job\.status\)/);
+  assert.match(owner, /Change timer/);
   assert.match(styles, /\.op-arrival-card/);
 });
 
@@ -215,7 +215,7 @@ test("booking addresses use building dropdowns and reveal apartment units", asyn
   assert.match(actions, /`\$\{NEEDS_BUILDING_DETAIL\}: \$\{pickupBuildingOther\}`/);
 });
 
-test("the desktop driver portal stays centered after operator mobile styles", async () => {
+test("the desktop owner portal stays centered after operator mobile styles", async () => {
   const styles = await readFile(new URL("app/globals.css", root), "utf8");
   const operatorMobileRule = styles.indexOf(".op-gate { position: fixed; inset: 0;");
   const finalDesktopRule = styles.lastIndexOf("@media (min-width: 760px)");

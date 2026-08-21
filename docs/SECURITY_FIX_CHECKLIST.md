@@ -1,6 +1,16 @@
 # HAULWAY security-fix checklist
 
-Last updated: August 19, 2026
+Last updated: August 21, 2026
+
+## Current owner-operated launch controls
+
+- [x] Driver application and SMS authentication routes return HTTP 410 and create no account or session.
+- [x] Legacy driver sessions fail hydration and are deleted.
+- [x] Driver-management endpoints return HTTP 410.
+- [x] The job-assignment action returns HTTP 410.
+- [x] Only active administrator sessions can access or mutate the operator side of any job.
+
+Driver controls listed later in this document describe the dormant, previously prepared fleet model and are not enabled for launch.
 
 Legend:
 
