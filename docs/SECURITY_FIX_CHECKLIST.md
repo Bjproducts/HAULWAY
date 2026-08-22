@@ -90,6 +90,9 @@ Legend:
 - [x] Validate and normalize driver application inputs server-side.
 - [x] Validate compliance dates before driver approval or renewal.
 - [x] Fail closed when required secrets or security configuration are invalid.
+- [x] Validate every production-critical environment variable before Netlify can publish a replacement deployment.
+- [x] Track applied database migrations and expose schema drift through the health endpoint.
+- [x] Disable destructive draft/media retention until the owners approve and configure an explicit window.
 
 ## Database security
 

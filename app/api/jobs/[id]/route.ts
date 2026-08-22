@@ -158,7 +158,7 @@ export async function PATCH(request: Request, context: Context) {
         await commit({ status: "completed" });
         smsEvent = {
           id: await addSystemMessage(id, "Job completed and confirmed by both sides. Choose how you'd like to pay."),
-          body: "HAULWAY update: Your haul is complete. Open the app to choose cash or Interac payment.",
+          body: "HAULWAY update: Your haul is complete. Open the app to choose your payment method.",
         };
       } else {
         const confirmer = session.role === "operator" ? "Haulway" : "Customer";

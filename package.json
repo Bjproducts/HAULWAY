@@ -7,10 +7,12 @@
   },
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npm run verify:deploy",
     "build": "next build",
     "start": "next start",
     "test": "npm run build && node --test \"tests/*.test.mjs\"",
-    "lint": "eslint app db lib tests next.config.ts postcss.config.mjs eslint.config.mjs"
+    "lint": "eslint app db lib netlify scripts tests next.config.ts postcss.config.mjs eslint.config.mjs",
+    "verify:deploy": "node scripts/verify-deploy-env.mjs && node scripts/verify-migrations.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",
@@ -21,6 +23,7 @@
   "devDependencies": {
     "@eslint/js": "9.39.4",
     "@netlify/plugin-nextjs": "5.15.13",
+    "@next/env": "^16.3.0",
     "@next/eslint-plugin-next": "16.3.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",

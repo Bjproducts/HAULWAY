@@ -662,7 +662,7 @@ function RequestView({ jobId, banner, seenCount, focusLocked, onBack, onHome, on
         {job.status === "completed" && !job.paymentMethod && <section className="request-action payment">
           <div><small>FINAL STEP</small><strong>How will you pay?</strong><p>Choose the method you&apos;ll use with Haulway.</p></div>
           <div className="request-action-row">
-            <button className="pay-option" disabled={busy} onClick={() => void action("payment_method", { method: "interac" })}>Interac e-Transfer</button>
+            {INTERAC_EMAIL && <button className="pay-option" disabled={busy} onClick={() => void action("payment_method", { method: "interac" })}>Interac e-Transfer</button>}
             <button className="pay-option" disabled={busy} onClick={() => void action("payment_method", { method: "cash" })}>Cash</button>
           </div>
         </section>}

@@ -143,3 +143,36 @@ test("public launch surfaces enforce bot validation, SMS consent, and legal disc
   assert.match(robots, /sitemap\.xml/);
   assert.match(sitemap, /https:\/\/haulway\.ca\/privacy/);
 });
+
+test("production deploys fail closed on configuration or migration drift", async () => {
+  const [environmentPolicy, deployCheck, migrationManifest, migrationCheck, reconciliation, health, retention, customerPage] = await Promise.all([
+    readFile(new URL("config/production-env.json", root), "utf8"),
+    readFile(new URL("scripts/verify-deploy-env.mjs", root), "utf8"),
+    readFile(new URL("config/schema-migrations.json", root), "utf8"),
+    readFile(new URL("scripts/verify-migrations.mjs", root), "utf8"),
+    readFile(new URL("supabase/migrations/20260822000000_reconcile_schema_and_add_ledger.sql", root), "utf8"),
+    readFile(new URL("app/api/health/route.ts", root), "utf8"),
+    readFile(new URL("lib/retention.ts", root), "utf8"),
+    readFile(new URL("app/page.tsx", root), "utf8"),
+  ]);
+  const policy = JSON.parse(environmentPolicy);
+  const migrations = JSON.parse(migrationManifest);
+  for (const name of ["TURNSTILE_SECRET_KEY", "OPERATOR_MFA_ENCRYPTION_KEY", "SECURITY_FINGERPRINT_SECRET", "TWILIO_STATUS_CALLBACK_URL"]) {
+    assert.ok(policy.required.includes(name));
+  }
+  assert.ok(policy.retired.includes("OPERATOR_SETUP_TOKEN"));
+  assert.match(deployCheck, /Refusing to replace the live deployment/);
+  assert.match(migrationCheck, /haulway_schema_migrations/);
+  assert.equal(migrations.at(-1), "20260822000000_reconcile_schema_and_add_ledger.sql");
+  assert.match(reconciliation, /add column if not exists customer_rating/);
+  assert.match(reconciliation, /create or replace function public\.refund_rate_limit/);
+  assert.match(reconciliation, /create or replace function public\.prevent_second_active_haul/);
+  assert.match(reconciliation, /create trigger one_active_haul_per_customer/);
+  assert.match(reconciliation, /create table if not exists public\.haulway_schema_migrations/);
+  assert.match(reconciliation, /one_active_haul_per_customer/);
+  assert.match(health, /configuration:/);
+  assert.match(health, /migrations,/);
+  assert.match(retention, /if \(abandonedBefore\)/);
+  assert.match(retention, /draftCleanup: draftRetentionHours == null \? "disabled" : "enabled"/);
+  assert.match(customerPage, /\{INTERAC_EMAIL && <button className="pay-option"/);
+});

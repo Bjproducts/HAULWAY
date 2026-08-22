@@ -11,9 +11,12 @@ The one-active-haul guard remains enforced in both the API and database. If an u
 
 Customer and request data lives in Supabase Postgres. Uploaded media stays in a private Supabase Storage bucket and is exposed only through short-lived signed URLs after a server-side access check. Request events are written to an SMS outbox, sent immediately through Twilio, and retried by a scheduled Netlify function.
 
+Production builds run a configuration and migration-manifest preflight before Next.js compiles. Netlify will refuse an incomplete replacement deployment while leaving the current production release online. Runtime health at `/api/health` independently checks configuration, database access, and the applied migration ledger.
+
 ## Supabase setup
 
 1. In the Supabase SQL editor, run every file in `supabase/migrations` in filename order. The migrations create the private `job-media` bucket, verified Auth links, durable rate limits, the SMS outbox, operator accounts, upload quarantine metadata, and immutable audit records. Legacy driver schema is retained but is not reachable by the launch application.
+   Starting with `20260822000000_reconcile_schema_and_add_ledger.sql`, each database records its applied versions in `haulway_schema_migrations`; the health endpoint reports HTTP 503 if code and database versions diverge.
 2. In **Authentication → Providers → Phone**, enable phone sign-in and configure an SMS provider. Customer sessions are created only after Supabase verifies the six-digit SMS code.
 3. Review the Auth rate limits in the Supabase dashboard before production launch.
 4. Copy `.env.example` to `.env` and provide the Supabase values. Keep `SUPABASE_SECRET_KEY` server-only.
