@@ -10,12 +10,15 @@ This is the release gate for promoting `https://haulway.ca`. Do not advertise th
 - [ ] Replace the operator passphrase with a unique random value of at least 20 characters, share it only with the two owners, and store it in a password manager.
 - [ ] Remove `OPERATOR_SETUP_TOKEN` from Netlify after the owner row has been created.
 - [ ] Confirm Netlify production context contains every variable documented in `.env.example`; no Twilio or Supabase secret may use a `NEXT_PUBLIC_` name.
+- [x] Add a Production-build configuration preflight so missing or inconsistent variables cannot replace the current live deployment.
+- [ ] Approve an abandoned draft/media retention window before setting `ABANDONED_DRAFT_RETENTION_HOURS`; leave it unset until then.
 - [ ] Have Alberta counsel review the Privacy Policy, Terms, SMS Terms, contractor agreement, insurance requirements, and the business identity/mailing address required for customer communications.
 
 ## Deploy and smoke test
 
 - [ ] Deploy one immutable commit to Netlify Production.
 - [ ] Confirm `https://haulway.ca/api/health` returns HTTP 200 and `{ "status": "ok" }`.
+- [ ] Confirm the health response reports `configuration`, `database`, and `migrations` as `ok` after every database or environment change.
 - [ ] Confirm `/privacy`, `/terms`, `/sms-terms`, `/robots.txt`, `/sitemap.xml`, and `/.well-known/security.txt` return HTTP 200.
 - [ ] Confirm `https://www.haulway.ca` redirects to `https://haulway.ca` with HTTPS.
 - [ ] On a real phone, create a customer account, receive exactly one OTP, create a request, upload media, accept a quote, and receive transactional SMS updates.

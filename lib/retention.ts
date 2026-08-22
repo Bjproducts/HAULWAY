@@ -3,19 +3,26 @@ import { getStorage, getSupabase, throwDatabaseError } from "@/db";
 export async function runSafeRetentionMaintenance() {
   const db = getSupabase();
   const now = new Date();
-  const abandonedBefore = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const draftRetentionHours = configuredDraftRetentionHours();
+  const abandonedBefore = draftRetentionHours == null
+    ? null
+    : new Date(now.getTime() - draftRetentionHours * 60 * 60 * 1000).toISOString();
   const rateLimitBefore = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
 
-  const { data: drafts, error: draftError } = await db.from("jobs")
-    .select("id")
-    .eq("upload_complete", false)
-    .lt("created_at", abandonedBefore)
-    .order("created_at", { ascending: true })
-    .limit(100);
-  throwDatabaseError(draftError);
+  let drafts: Array<{ id: string }> = [];
+  if (abandonedBefore) {
+    const { data, error } = await db.from("jobs")
+      .select("id")
+      .eq("upload_complete", false)
+      .lt("created_at", abandonedBefore)
+      .order("created_at", { ascending: true })
+      .limit(100);
+    throwDatabaseError(error);
+    drafts = data ?? [];
+  }
 
   let removedObjects = 0;
-  for (const draft of drafts ?? []) {
+  for (const draft of drafts) {
     const { data: media, error: mediaError } = await db.from("job_media")
       .select("object_key")
       .eq("job_id", draft.id);
@@ -38,7 +45,12 @@ export async function runSafeRetentionMaintenance() {
   const { error: rateLimitError } = await db.from("rate_limits").delete().lt("updated_at", rateLimitBefore);
   throwDatabaseError(rateLimitError);
 
-  const summary = { abandonedDrafts: drafts?.length ?? 0, removedObjects };
+  const summary = {
+    draftCleanup: draftRetentionHours == null ? "disabled" : "enabled",
+    draftRetentionHours,
+    abandonedDrafts: drafts.length,
+    removedObjects,
+  };
   if (summary.abandonedDrafts || summary.removedObjects) {
     const { error } = await db.from("audit_events").insert({
       actor_role: "system",
@@ -49,4 +61,13 @@ export async function runSafeRetentionMaintenance() {
     throwDatabaseError(error);
   }
   return summary;
+}
+
+function configuredDraftRetentionHours() {
+  const configured = process.env.ABANDONED_DRAFT_RETENTION_HOURS?.trim();
+  if (!configured) return null;
+  if (!/^\d+$/.test(configured)) throw new Error("ABANDONED_DRAFT_RETENTION_HOURS must be a whole number.");
+  const hours = Number(configured);
+  if (hours < 24 || hours > 8760) throw new Error("ABANDONED_DRAFT_RETENTION_HOURS must be between 24 and 8760.");
+  return hours;
 }
